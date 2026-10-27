@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+
+<html lang="fr"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"on-primary-fixed":"#00210f","primary-container":"#268451","on-secondary-fixed-variant":"#0d512f","error":"#ba1a1a","error-container":"#ffdad6","on-surface-variant":"#3f4941","surface-container-highest":"#d5e7d8","primary":"#006a3b","surface-container-lowest":"#ffffff","secondary-fixed":"#aff2c2","surface":"#ecfeee","on-secondary-fixed":"#00210f","secondary-container":"#aff2c2","on-primary-fixed-variant":"#00522d","tertiary-fixed":"#ffdfa0","surface-container-low":"#e6f8e8","surface-tint":"#006d3d","on-tertiary-fixed-variant":"#5c4300","on-surface":"#101f15","outline-variant":"#becabe","on-secondary-container":"#32704a","tertiary-fixed-dim":"#f6be39","surface-container":"#e0f3e3","on-tertiary":"#ffffff","on-secondary":"#ffffff","background":"#ecfeee","surface-container-high":"#dbeddd","inverse-surface":"#253429","on-tertiary-container":"#fffbff","surface-bright":"#ecfeee","primary-fixed-dim":"#7ed99e","primary-fixed":"#9af6b8","on-tertiary-fixed":"#261a00","tertiary":"#765700","on-primary-container":"#f6fff4","inverse-on-surface":"#e3f5e6","on-error-container":"#93000a","on-background":"#101f15","inverse-primary":"#7ed99e","on-error":"#ffffff","secondary-fixed-dim":"#94d5a7","on-primary":"#ffffff","outline":"#6f7a70","surface-dim":"#cddfcf","tertiary-container":"#956e00","secondary":"#2b6a45","surface-variant":"#d5e7d8"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"gutter":"1.25rem","space-md":"1rem","space-xl":"2.5rem","gutter-mobile":"0.75rem","space-lg":"1.5rem","margin-mobile":"1rem","space-xs":"0.25rem","space-sm":"0.5rem","margin":"2rem"},"fontFamily":{"label-sm":["Plus Jakarta Sans"],"headline-lg":["Plus Jakarta Sans"],"display":["Plus Jakarta Sans"],"headline-sm":["Plus Jakarta Sans"],"body-sm":["Plus Jakarta Sans"],"body-lg":["Plus Jakarta Sans"],"body-md":["Plus Jakarta Sans"],"label-md":["Plus Jakarta Sans"],"headline-lg-mobile":["Plus Jakarta Sans"],"title-md":["Plus Jakarta Sans"],"headline-md":["Plus Jakarta Sans"]},"fontSize":{"label-sm":["11px",{"lineHeight":"14px","letterSpacing":"0.03em","fontWeight":"700"}],"headline-lg":["32px",{"lineHeight":"40px","letterSpacing":"-0.015em","fontWeight":"700"}],"display":["40px",{"lineHeight":"48px","letterSpacing":"-0.02em","fontWeight":"700"}],"headline-sm":["20px",{"lineHeight":"28px","fontWeight":"600"}],"body-sm":["12px",{"lineHeight":"16px","fontWeight":"400"}],"body-lg":["16px",{"lineHeight":"24px","fontWeight":"400"}],"body-md":["14px",{"lineHeight":"20px","fontWeight":"400"}],"label-md":["13px",{"lineHeight":"18px","letterSpacing":"0.01em","fontWeight":"600"}],"headline-lg-mobile":["26px",{"lineHeight":"34px","letterSpacing":"-0.01em","fontWeight":"700"}],"title-md":["16px",{"lineHeight":"24px","fontWeight":"600"}],"headline-md":["24px",{"lineHeight":"32px","letterSpacing":"-0.01em","fontWeight":"600"}]}}}};</script></head><body class="bg-background font-body-md text-on-surface antialiased"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-low z-50 flex flex-col justify-between p-space-md"><div class="flex flex-col gap-space-md"><div class="flex items-center gap-space-sm px-space-xs"><img alt="Fellah Numérique" class="h-10 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAod09Vx30KtUSV0ERrMNvYEDunMDhxvxegVhK2FTjMHANQIm9VhofakXEWTCbyyl0wQtKLL5AEfpBAWU8zlLGlYYTCmcQzDMPNK9F6o82hFpVpNwn_pPetaHZ8q4FOHq6wFDvgg4w5IHkekXJGRIXq-qfqN23815nc4T700f4PMNFSAH6G3TftNSso03IJJqEvX1usaFWO9EMtNIb5acOifZHF5RTrhJF7l3pQJAy_IeyJJlZCszBxDCLCEmVPDNSegg"/><div class="flex flex-col"><span class="font-title-md text-title-md text-primary font-bold">Fellah Numérique</span><span class="font-label-sm text-label-sm text-on-surface-variant">Espace Opérateur</span></div></div><div class="bg-surface-container-highest p-space-sm rounded-xl flex items-center justify-between"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary text-xl">account_tree</span><span class="font-label-md text-label-md text-on-surface">Rôle actif:</span></div><span class="font-label-sm text-label-sm bg-primary text-on-primary px-space-xs py-0.5 rounded">Agriculteur</span></div><nav class="flex flex-col gap-space-xs" data-active-classes="bg-primary text-on-primary font-bold"><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all" data-path="espace-agriculteur" href="#"><span class="material-symbols-outlined text-xl">dashboard</span><span class="font-body-md text-body-md">Vue d'Ensemble</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all" data-path="mes-produits-et-annonces" href="#"><span class="material-symbols-outlined text-xl">inventory_2</span><span class="font-body-md text-body-md">Mes Récoltes &amp; Annonces</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all" data-path="commandes-et-livraisons" href="#"><span class="material-symbols-outlined text-xl">local_shipping</span><span class="font-body-md text-body-md">Commandes &amp; Expéditions</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all" data-path="marche-public" href="#"><span class="material-symbols-outlined text-xl">storefront</span><span class="font-body-md text-body-md">Marché Public</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all" data-path="portail-acheteur" href="#"><span class="material-symbols-outlined text-xl">shopping_cart</span><span class="font-body-md text-body-md">Portail Acheteur</span></a><a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all" data-path="administration" href="#"><span class="material-symbols-outlined text-xl">admin_panel_settings</span><span class="font-body-md text-body-md">Administration</span></a></nav></div><div class="flex flex-col gap-space-sm pt-space-md border-t border-outline-variant/30"><div class="flex items-center justify-between text-on-surface-variant"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-base">call</span><span class="font-label-sm text-label-sm">Assistance</span></div><span class="font-label-sm text-label-sm text-primary font-bold">+213 23 45 67 89</span></div><div class="flex items-center gap-space-sm p-space-xs rounded-xl bg-surface-container-lowest"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBfS6zVW-Om3LBaTseEXz6IIltODNVjF0NcAXtwuAAEBvgxEJz6AxaRLNjSi1yaMgyGJ11TAMs6__C8NFI6Hy0dFk_vIj0TJBvZT8VVA5fNVyJYigYV0zYci-rmsCqmK46UYxq_Lzt5bsRQ0Y8MUzkXjv--pLIZ1QbL_Z6zFaUS2NMB-50DAhV5uJYDQDt0l5ONwE4rWgJy06xuGRtN_awjNNG5b0-COKZzvJ_MGbPfOx4MsESlITJf"/><div class="flex-1 min-w-0"><p class="font-label-md text-label-md text-on-surface truncate">Coopérative El Baraka</p><p class="font-body-sm text-body-sm text-on-surface-variant truncate">Mascara (Zone Ouest)</p></div></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-16 bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-space-lg"><div class="flex items-center gap-space-md w-96"><img alt="Fellah Numérique" class="h-8 w-auto object-contain rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAod09Vx30KtUSV0ERrMNvYEDunMDhxvxegVhK2FTjMHANQIm9VhofakXEWTCbyyl0wQtKLL5AEfpBAWU8zlLGlYYTCmcQzDMPNK9F6o82hFpVpNwn_pPetaHZ8q4FOHq6wFDvgg4w5IHkekXJGRIXq-qfqN23815nc4T700f4PMNFSAH6G3TftNSso03IJJqEvX1usaFWO9EMtNIb5acOifZHF5RTrhJF7l3pQJAy_IeyJJlZCszBxDCLCEmVPDNSegg"/><div class="w-full flex items-center bg-surface-container-lowest rounded-lg px-space-sm py-1 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"><span class="material-symbols-outlined text-outline text-lg mr-space-xs">search</span><input class="w-full bg-transparent border-0 text-on-surface placeholder:text-outline focus:outline-none font-body-sm text-body-sm" placeholder="Rechercher stock, lot, acheteur..." type="text"/></div></div><div class="flex items-center gap-space-md"><div class="flex items-center bg-surface-container-high rounded-lg p-0.5 text-on-surface-variant"><button class="px-space-xs py-0.5 rounded font-label-sm text-label-sm bg-surface-container-lowest text-primary shadow-sm" type="button">FR</button><button class="px-space-xs py-0.5 rounded font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface" type="button">AR</button><button class="px-space-xs py-0.5 rounded font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface" type="button">EN</button></div><a class="inline-flex items-center gap-space-xs bg-primary hover:bg-secondary text-on-primary font-title-md text-title-md px-space-md py-1 rounded-lg transition-colors" data-path="mes-produits-et-annonces" href="#"><span class="material-symbols-outlined text-lg">add</span><span class="">Nouvelle Récolte</span></a><span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-on-surface">notifications</span><div class="flex items-center gap-space-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBfS6zVW-Om3LBaTseEXz6IIltODNVjF0NcAXtwuAAEBvgxEJz6AxaRLNjSi1yaMgyGJ11TAMs6__C8NFI6Hy0dFk_vIj0TJBvZT8VVA5fNVyJYigYV0zYci-rmsCqmK46UYxq_Lzt5bsRQ0Y8MUzkXjv--pLIZ1QbL_Z6zFaUS2NMB-50DAhV5uJYDQDt0l5ONwE4rWgJy06xuGRtN_awjNNG5b0-COKZzvJ_MGbPfOx4MsESlITJf"/><span class="material-symbols-outlined text-on-surface-variant cursor-pointer">arrow_drop_down</span></div></div></header><main class="relative pt-16 bg-background min-h-screen px-space-lg py-space-md"><div class="flex flex-col w-full">
+<!-- Top Context & Spatial Status -->
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md mb-space-lg">
+<div class="flex items-start gap-space-md">
+<div class="w-14 h-14 rounded-xl bg-surface-container-highest flex items-center justify-center text-primary shadow-sm flex-shrink-0">
+<span class="material-symbols-outlined text-4xl" style="font-variation-settings: 'FILL' 1;">share_location</span>
+</div>
+<div>
+<div class="flex items-center gap-space-xs text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wider mb-1">
+<span>فضاء الفلاح</span>
+<span>•</span>
+<span>Espace Exploitant</span>
+<span>•</span>
+<span class="text-primary font-bold">السجل العقاري والتقني</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface flex flex-wrap items-center gap-x-space-sm gap-y-1">
+<span>تعيين القطعة الفلاحية وسجل التربة والمحاصيل</span>
+<span class="font-body-md text-body-md text-on-surface-variant font-normal">| Délimitation Parcellaire &amp; Fiche Agrologique</span>
+</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">
+          تحديد المضلع الجغرافي عبر الساتل، تدقيق بارامترات التربة الفيزيوكيميائية، وربط المحاصيل الحالية والمستقبلية.
+        </p>
+</div>
+</div>
+<!-- Quick Action / State indicators -->
+<div class="flex items-center gap-space-sm self-start lg:self-center flex-wrap">
+<div class="px-space-md py-space-xs rounded-xl bg-surface-container flex items-center gap-space-xs shadow-sm">
+<span class="w-2.5 h-2.5 rounded-full bg-primary animate-pulse"></span>
+<span class="font-label-md text-label-md text-on-surface">إحداثيات WGS84: نشطة</span>
+</div>
+<button class="px-space-md py-space-sm rounded-lg bg-surface-container-lowest hover:bg-surface-container text-on-surface font-title-md text-title-md flex items-center gap-space-xs shadow-sm transition-all" onclick="window.print()" type="button">
+<span class="material-symbols-outlined text-xl text-primary">picture_as_pdf</span>
+<span>تصدير بطاقة السجل الفلاحي (PDF)</span>
+</button>
+</div>
+</div>
+<!-- Main Workspace Grid -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-space-lg">
+<!-- Left Column: Interactive Satellite Mapping & Spatial Telemetry (xl:col-span-7) -->
+<div class="xl:col-span-7 flex flex-col gap-space-lg">
+<!-- Interactive Satellite Map Container -->
+<div class="bg-surface-container-lowest rounded-xl shadow-md p-space-md relative overflow-hidden flex flex-col">
+<!-- Map Header & Layer Toolbar -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm pb-space-sm mb-space-sm">
+<div class="flex items-center gap-space-sm">
+<span class="inline-flex items-center justify-center p-2 rounded-lg bg-primary-fixed text-on-primary-fixed">
+<span class="material-symbols-outlined text-xl">satellite_alt</span>
+</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">نافذة الترسيم عبر القمر الاصطناعي</h2>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Vue Hybride HD • قطاع بسكرة - طولقة (Biskra Oasis)</span>
+</div>
+</div>
+<!-- Map Modes Pills -->
+<div class="flex items-center bg-surface-container rounded-lg p-1 text-on-surface-variant gap-1">
+<button class="px-space-sm py-1 rounded font-label-sm text-label-sm bg-surface-container-lowest text-primary shadow-sm font-bold flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-sm">public</span>
+              قمر اصطناعي (Satellite)
+            </button>
+<button class="px-space-sm py-1 rounded font-label-sm text-label-sm hover:text-on-surface flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-sm">landscape</span>
+              تضاريس (Relief)
+            </button>
+<button class="px-space-sm py-1 rounded font-label-sm text-label-sm hover:text-on-surface flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-sm">grid_4x4</span>
+              كاداستر (Cadastre)
+            </button>
+</div>
+</div>
+<!-- Visual Map Area with Polygon Overlay -->
+<div class="relative w-full h-[480px] rounded-xl overflow-hidden group shadow-inner">
+<div class="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-[1.01]" data-location="Tolga, Biskra, Algeria" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuAEqkAiHzHovXq_xbDiajihpYKIrJ7seCBh5-Og5ENc2IZ0M7W6mnyhefySEVmdfmO-ezhrgvnlGagY15_4e4QnoMbfW-E_O60kylDn-dqkRPF21EjXHfyZ5GrAfxn6--REnW4K7S4TPm9q8L1En_NwPXghnN7s27XZsBbMQ58gISHOBP5K1nIaQfQ3OY6ttiPy2qeK45kKfzMKftBNvp0K2u1Agt-XLA3KdRV5uuf_3Y-Ly4GMTtHm')"></div>
+<!-- Gradient Top Scrim -->
+<div class="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none"></div>
+<!-- Simulated Interactive Polygon & Pins Layer (SVG Overlay) -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" preserveaspectratio="none" viewbox="0 0 800 480">
+<!-- Cadastral Plot Boundary -->
+<polygon class="drop-shadow-lg" fill="rgba(30, 126, 52, 0.28)" points="160,110 590,95 680,360 410,410 190,340" stroke="#1e7e34" stroke-dasharray="8 4" stroke-width="3.5"></polygon>
+<!-- GPS Vertices (Nodes) -->
+<circle cx="160" cy="110" fill="#ffffff" r="7" stroke="#1e7e34" stroke-width="3"></circle>
+<circle cx="590" cy="95" fill="#ffffff" r="7" stroke="#1e7e34" stroke-width="3"></circle>
+<circle cx="680" cy="360" fill="#ffffff" r="7" stroke="#1e7e34" stroke-width="3"></circle>
+<circle cx="410" cy="410" fill="#ffffff" r="7" stroke="#1e7e34" stroke-width="3"></circle>
+<circle cx="190" cy="340" fill="#ffffff" r="7" stroke="#1e7e34" stroke-width="3"></circle>
+<!-- Irrigation Line Connection -->
+<line stroke="#ffb95f" stroke-dasharray="4 2" stroke-width="2.5" x1="320" x2="480" y1="210" y2="280"></line>
+</svg>
+<!-- Floating Water Well (Forage) Marker -->
+<div class="absolute top-[210px] left-[320px] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center">
+<span class="inline-flex p-1.5 rounded-full bg-secondary text-on-secondary shadow-lg ring-4 ring-white/50 animate-bounce">
+<span class="material-symbols-outlined text-lg">water_drop</span>
+</span>
+<span class="mt-1 px-2 py-0.5 rounded bg-inverse-surface/90 text-inverse-on-surface font-label-sm text-label-sm backdrop-blur">بئر ارتوازي عميق 85m</span>
+</div>
+<!-- Live Floating Plot HUD Badge -->
+<div class="absolute top-4 left-4 z-20 bg-surface-container-lowest/95 backdrop-blur-md rounded-xl p-space-sm shadow-xl flex items-center gap-space-md">
+<div class="w-12 h-12 rounded-lg bg-primary-fixed flex items-center justify-center text-on-primary-fixed">
+<span class="material-symbols-outlined text-3xl">crop_free</span>
+</div>
+<div>
+<span class="font-label-sm text-label-sm text-on-surface-variant block">المساحة المحسوبة آلياً (Surface Calibrée)</span>
+<div class="flex items-baseline gap-1">
+<span class="font-headline-lg text-headline-lg text-primary font-extrabold tracking-tight">4.82</span>
+<span class="font-title-md text-title-md text-on-surface font-bold">هكتار (Ha)</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-mono mr-1">(48,200 م²)</span>
+</div>
+</div>
+</div>
+<!-- Bottom Left In-Map Tools -->
+<div class="absolute bottom-4 left-4 z-20 flex items-center gap-space-xs flex-wrap">
+<button class="px-space-md py-2.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md font-bold flex items-center gap-1.5 shadow-lg active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-lg">polyline</span>
+<span>رسم حدود القطعة (Polygone)</span>
+</button>
+<button class="px-space-md py-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container text-on-surface font-label-md text-label-md font-bold flex items-center gap-1.5 shadow-lg active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-lg text-secondary">water_drop</span>
+<span>تحديد نقطة السقي (Forage)</span>
+</button>
+<button class="px-space-sm py-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container text-on-surface shadow-lg flex items-center gap-1" title="Geolocalisation GPS direct" type="button">
+<span class="material-symbols-outlined text-lg text-primary">my_location</span>
+<span class="font-label-sm text-label-sm">GPS مباشر</span>
+</button>
+</div>
+<!-- Map Coordinate Floating Chip (Top Right) -->
+<div class="absolute top-4 right-4 z-20 bg-inverse-surface/85 backdrop-blur text-inverse-on-surface px-space-sm py-1 rounded-lg font-mono text-xs flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary-fixed">explore</span>
+<span>34°43'12.4"N 5°22'48.9"E</span>
+</div>
+</div>
+<!-- Administrative Cadastral Metadata Bar -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-space-sm mt-space-md pt-space-xs">
+<div class="p-space-sm rounded-lg bg-surface-container flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">الولاية (Wilaya)</span>
+<span class="font-title-md text-title-md text-on-surface font-bold">07 - بسكرة (Biskra)</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">البلدية والمنطقة</span>
+<span class="font-title-md text-title-md text-on-surface font-bold">طولقة (Tolga Oasis)</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">رقم القطعة / الجزيرة</span>
+<span class="font-title-md text-title-md text-on-surface font-bold font-mono">Îlot N° 108 / P-24</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">طبيعة الحيازة العقارية</span>
+<span class="font-title-md text-title-md text-on-surface font-bold">امتياز فلاحي (Concession)</span>
+</div>
+</div>
+</div>
+<!-- Quick Soil Health Radar / Biomass NDVI Summary Box -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col md:flex-row items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-md">
+<div class="w-16 h-16 rounded-xl bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed flex-shrink-0">
+<span class="material-symbols-outlined text-4xl">eco</span>
+</div>
+<div>
+<div class="flex items-center gap-space-xs mb-1">
+<span class="px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm font-bold">مؤشر نشط: NDVI 0.74</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">مسح الأقمار الاصطناعية الأخير (منذ 48 ساعة)</span>
+</div>
+<h3 class="font-title-md text-title-md text-on-surface font-bold">كثافة الغطاء النباتي والحيوية الزراعية ممتازة</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">
+              الكتلة الحيوية متجانسة عبر كامل مساحة 4.8 هكتار مع غياب مؤشرات الجفاف أو تعري التربة.
+            </p>
+</div>
+</div>
+<button class="w-full md:w-auto px-space-md py-space-sm rounded-lg bg-surface-container hover:bg-surface-container-high text-primary font-title-md text-title-md flex items-center justify-center gap-space-xs transition-colors flex-shrink-0" type="button">
+<span class="material-symbols-outlined text-xl">analytics</span>
+<span>سجل القمر الصناعي NDVI</span>
+</button>
+</div>
+</div>
+<!-- Right Column: Soil Properties Form & Crop Technical Card (xl:col-span-5) -->
+<div class="xl:col-span-5 flex flex-col gap-space-lg">
+<!-- Fiche Agrologique / Soil Characteristics -->
+<div class="bg-surface-container-lowest rounded-xl shadow-md p-space-md flex flex-col">
+<div class="flex items-center justify-between pb-space-sm mb-space-sm">
+<div class="flex items-center gap-space-sm">
+<div class="w-10 h-10 rounded-lg bg-tertiary-fixed text-on-tertiary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-2xl">texture</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">بطاقة خصائص ونوعية التربة</h2>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Caractéristiques Pédologiques &amp; Agronomiques</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 rounded bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm font-bold">مُوثق بمخبر</span>
+</div>
+<!-- Soil Texture Selector Radio Cards -->
+<label class="font-label-md text-label-md text-on-surface mb-2 block font-bold">
+          نوع وقوام التربة السائد (Texture du Sol):
+        </label>
+<div class="grid grid-cols-2 gap-space-sm mb-space-md">
+<!-- Option 1: Sandy Loam / Sableux Oasis -->
+<label class="p-space-sm rounded-xl bg-surface-container-high cursor-pointer flex flex-col gap-1 transition-all">
+<div class="flex items-center justify-between">
+<span class="font-title-md text-title-md text-primary font-bold">رملية طميية</span>
+<input checked="" class="w-4 h-4 accent-primary" name="soil_type" type="radio" value="sableux_limoneux"/>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-mono">Sableux-Limoneux</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">مثالي للواحات، نفاذية عالية للمياه</span>
+</label>
+<!-- Option 2: Clay / Argileux -->
+<label class="p-space-sm rounded-xl bg-surface-container hover:bg-surface-container-high cursor-pointer flex flex-col gap-1 transition-all">
+<div class="flex items-center justify-between">
+<span class="font-title-md text-title-md text-on-surface font-bold">طينية متماسكة</span>
+<input class="w-4 h-4 accent-primary" name="soil_type" type="radio" value="argileux"/>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-mono">Argileux</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">احتفاظ كبير بالرطوبة والمغذيات</span>
+</label>
+<!-- Option 3: Silty / Limoneux -->
+<label class="p-space-sm rounded-xl bg-surface-container hover:bg-surface-container-high cursor-pointer flex flex-col gap-1 transition-all">
+<div class="flex items-center justify-between">
+<span class="font-title-md text-title-md text-on-surface font-bold">غرينية فيضية</span>
+<input class="w-4 h-4 accent-primary" name="soil_type" type="radio" value="limoneux"/>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-mono">Limoneux Alluvionnaire</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">خصوبة طبيعية عالية، غنية بالرواسب</span>
+</label>
+<!-- Option 4: Calcareous / Calcaire Franc -->
+<label class="p-space-sm rounded-xl bg-surface-container hover:bg-surface-container-high cursor-pointer flex flex-col gap-1 transition-all">
+<div class="flex items-center justify-between">
+<span class="font-title-md text-title-md text-on-surface font-bold">كلسية متوازنة</span>
+<input class="w-4 h-4 accent-primary" name="soil_type" type="radio" value="calcaire"/>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-mono">Calcaire / Sol Franc</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">شائعة في هضاب وسهول الحبوب والزيتون</span>
+</label>
+</div>
+<!-- Key Physico-Chemical Metrics Bars -->
+<div class="flex flex-col gap-space-md mb-space-md p-space-sm rounded-xl bg-surface-container-low">
+<!-- Metric 1: pH level -->
+<div>
+<div class="flex items-center justify-between mb-1">
+<span class="font-label-md text-label-md text-on-surface font-bold">درجة الحموضة (pH du Sol)</span>
+<span class="font-label-md text-label-md text-primary font-mono font-bold">7.3 (متوازن / Legerement Basique)</span>
+</div>
+<div class="w-full h-3 rounded-full bg-surface-container-highest overflow-hidden flex">
+<div class="h-full bg-secondary-container" style="width: 30%"></div>
+<div class="h-full bg-primary" style="width: 45%"></div>
+<div class="h-full bg-tertiary-fixed-dim" style="width: 25%"></div>
+</div>
+<div class="flex justify-between text-xs font-mono text-on-surface-variant mt-1">
+<span>6.0 (حمضي)</span>
+<span class="font-bold text-primary">7.0 - 7.5 (مثالي)</span>
+<span>8.5 (قلوي)</span>
+</div>
+</div>
+<!-- Metric 2: Organic Matter % -->
+<div>
+<div class="flex items-center justify-between mb-1">
+<span class="font-label-md text-label-md text-on-surface font-bold">المادة العضوية (Matière Organique)</span>
+<span class="font-label-md text-label-md text-primary font-mono font-bold">2.45% (مستوى جيد)</span>
+</div>
+<div class="w-full h-2.5 rounded-full bg-surface-container-highest overflow-hidden">
+<div class="h-full bg-primary rounded-full transition-all duration-1000" style="width: 58%"></div>
+</div>
+</div>
+<!-- Metric 3: Salinity / Electrical Conductivity (EC) -->
+<div>
+<div class="flex items-center justify-between mb-1">
+<div class="flex items-center gap-1">
+<span class="font-label-md text-label-md text-on-surface font-bold">الملوحة والناقلية الكهربائية (Conductivité EC)</span>
+<span class="material-symbols-outlined text-sm text-tertiary" title="مؤشر هام جداً لجنوب الجزائر والواحات">info</span>
+</div>
+<span class="font-label-md text-label-md text-tertiary font-mono font-bold">1.8 dS/m (تحت السيطرة)</span>
+</div>
+<div class="w-full h-2.5 rounded-full bg-surface-container-highest overflow-hidden">
+<div class="h-full bg-tertiary-fixed-dim rounded-full" style="width: 36%"></div>
+</div>
+</div>
+<!-- Metric 4: Drainage & Water Infiltration -->
+<div class="flex items-center justify-between pt-1">
+<span class="font-label-md text-label-md text-on-surface font-bold">تصريف المياه والعمق الصالح للجذور:</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container-highest text-on-surface font-label-md text-label-md font-bold">عميق &gt; 120 سم / تصريف ممتاز</span>
+</div>
+</div>
+<!-- Soil Analysis Document Upload Banner -->
+<div class="p-space-sm rounded-xl bg-surface-container flex items-center justify-between gap-space-sm cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-2xl text-primary">upload_file</span>
+<div>
+<span class="font-label-md text-label-md text-on-surface font-bold block">تحميل وثيقة تحليل المخبر (INRAA / Laboratoire)</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">PDF أو صور ممسوحة لشهادة التحليل الزراعي</span>
+</div>
+</div>
+<button class="px-space-sm py-1 rounded bg-surface-container-lowest text-primary text-label-sm font-bold shadow-sm" type="button">
+            استعراض
+          </button>
+</div>
+</div>
+<!-- Crops, Varieties & Planting Module -->
+<div class="bg-surface-container-lowest rounded-xl shadow-md p-space-md flex flex-col">
+<div class="flex items-center justify-between pb-space-sm mb-space-sm">
+<div class="flex items-center gap-space-sm">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed text-on-primary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-2xl">potted_plant</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">نوع المنتوج والمحاصيل الفلاحية</h2>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Cultures Principales &amp; Calendrier de Campagne</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 rounded bg-surface-container text-on-surface font-label-sm text-label-sm">الموسم: 2024 / 2025</span>
+</div>
+<!-- Main Crop Selection with Algerian Specialties -->
+<div class="flex flex-col gap-space-sm mb-space-md">
+<label class="font-label-md text-label-md text-on-surface font-bold">المحصول الرئيسي المغروس (Culture Principale):</label>
+<div class="grid grid-cols-2 gap-space-sm">
+<!-- Deglet Nour Dates (Active) -->
+<div class="p-space-sm rounded-xl bg-surface-container-high flex items-center gap-space-sm cursor-pointer transition-all">
+<div class="w-10 h-10 rounded-lg bg-surface-container-lowest flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-2xl">park</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0">
+<span class="font-title-md text-title-md text-primary font-bold truncate">نخيل دقلة نور</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Deglet Nour (Oasis)</span>
+</div>
+<span class="material-symbols-outlined text-primary text-xl">check_circle</span>
+</div>
+<!-- Potatoes -->
+<div class="p-space-sm rounded-xl bg-surface-container hover:bg-surface-container-high flex items-center gap-space-sm cursor-pointer transition-all">
+<div class="w-10 h-10 rounded-lg bg-surface-container-lowest flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-2xl">nutrition</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0">
+<span class="font-title-md text-title-md text-on-surface font-bold truncate">بطاطا موسمية</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Pomme de terre (Spunta)</span>
+</div>
+</div>
+<!-- Olive Grove -->
+<div class="p-space-sm rounded-xl bg-surface-container hover:bg-surface-container-high flex items-center gap-space-sm cursor-pointer transition-all">
+<div class="w-10 h-10 rounded-lg bg-surface-container-lowest flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-2xl">nature</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0">
+<span class="font-title-md text-title-md text-on-surface font-bold truncate">أشجار الزيتون</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Olivier (Sigoise / Chemlal)</span>
+</div>
+</div>
+<!-- Industrial Tomato / Field Crops -->
+<div class="p-space-sm rounded-xl bg-surface-container hover:bg-surface-container-high flex items-center gap-space-sm cursor-pointer transition-all">
+<div class="w-10 h-10 rounded-lg bg-surface-container-lowest flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-2xl">psychiatry</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0">
+<span class="font-title-md text-title-md text-on-surface font-bold truncate">طماطم صناعية</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Tomate industrielle</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Secondary Fields: Yield, Irrigation, Intercropping -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md mb-space-md">
+<!-- Irrigation Type -->
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface font-bold">نظام الري المعتمد (Irrigation):</label>
+<div class="relative">
+<select class="w-full bg-surface-container-low rounded-lg p-2.5 font-body-md text-body-md text-on-surface appearance-none focus:outline-none">
+<option selected="">السقي بالتقطير الحديث (Goutte-à-goutte)</option>
+<option>الرش المحوري الذكي (Pivot d'irrigation)</option>
+<option>السقي التقليدي بالجاذبية (Séguias / Gravitaire)</option>
+</select>
+<span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Yield Estimation -->
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface font-bold">الإنتاج المتوقع (Rendement estimé):</label>
+<div class="flex items-center bg-surface-container-low rounded-lg px-space-sm py-1.5">
+<input class="w-full bg-transparent border-0 font-body-md text-body-md font-bold text-on-surface focus:outline-none" type="text" value="38.5"/>
+<span class="font-label-md text-label-md text-primary font-bold whitespace-nowrap">طن / هكتار (T/Ha)</span>
+</div>
+</div>
+<!-- Date of Plantation -->
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface font-bold">سنة الغرس / بداية الاستغلال:</label>
+<div class="flex items-center bg-surface-container-low rounded-lg px-space-sm py-1.5">
+<input class="w-full bg-transparent border-0 font-body-md text-body-md text-on-surface focus:outline-none" type="text" value="2018 (أشجار منتجة)"/>
+<span class="material-symbols-outlined text-primary text-xl">event</span>
+</div>
+</div>
+<!-- Intercropping (Cultures Intercalaires) -->
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface font-bold">محاصيل بينية مرافقة (Associées):</label>
+<div class="flex items-center bg-surface-container-low rounded-lg px-space-sm py-1.5">
+<input class="w-full bg-transparent border-0 font-body-md text-body-md text-on-surface focus:outline-none" type="text" value="فصة علفية + خضار تحت النخيل"/>
+<span class="material-symbols-outlined text-primary text-xl">layers</span>
+</div>
+</div>
+</div>
+<!-- Integrated Logo & Certification Badge -->
+<div class="p-space-sm rounded-xl bg-surface-container-highest flex items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm">
+<img alt="شعار الفلاح الرقمي" class="h-10 w-10 object-contain rounded-lg bg-surface-container-lowest p-1 shadow-sm" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAb9xGjARJLDWBOjW0OhhsHKRqKoWYV_eQ-jxd6c8qAqztuqF9-5adtPrD0Gr4K-UxIZnplXEnl4FXNOvpKsjn3ik_r9ysmwUVyDdUDK5uPXZqK8lqIeIU0VY3hU7p2fWpum6NFZxsue0ZxulJKWXRmCK4Xt31ZkeDHbC1SzsUG-QiVL-UkJ6BvK4A9WFQxEOt2pOV7FNK8MMPt-GfHVhB8526nzOoUmdLG2b2aMwRaGzCzIrwxHa6J-AjsT_8wijFWgQ"/>
+<div>
+<span class="font-label-md text-label-md text-on-surface font-bold block">توثيق منصة الفلاح الرقمي الجزائري</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">البيانات متصلة ببطاقة الفلاح البيومترية والغرفة الفلاحية</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-primary text-2xl">verified</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Global Sticky Actions Dock -->
+<div class="mt-space-lg p-space-md rounded-2xl bg-surface-container-lowest shadow-xl flex flex-col md:flex-row items-center justify-between gap-space-md sticky bottom-4 z-40">
+<div class="flex items-center gap-space-md">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed flex items-center justify-center text-on-primary-fixed">
+<span class="material-symbols-outlined text-2xl">inventory</span>
+</div>
+<div>
+<h4 class="font-title-md text-title-md text-on-surface font-bold">جاهز لحفظ ومطابقة القطعة الفلاحية</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+          تم تثبيت المضلع الجغرافي (4.82 Ha) بنجاح مع تسجيل كافة المؤشرات الزراعية.
+        </p>
+</div>
+</div>
+<!-- Buttons Array -->
+<div class="flex items-center gap-space-sm flex-wrap w-full md:w-auto justify-end">
+<button class="px-space-md py-space-sm rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-title-md text-title-md flex items-center gap-space-xs transition-colors" type="button">
+<span class="material-symbols-outlined text-xl">storefront</span>
+<span>ربط بإعلان بيع في السوق العام</span>
+</button>
+<button class="px-space-xl py-space-sm rounded-lg bg-primary hover:bg-primary-container text-on-primary font-title-md text-title-md font-bold flex items-center gap-space-xs shadow-md hover:shadow-lg active:scale-95 transition-all" type="button">
+<span class="material-symbols-outlined text-xl">save</span>
+<span>حفظ وتثبيت القطعة الفلاحية (Enregistrer)</span>
+</button>
+</div>
+</div>
+</div></main></div>
+</body></html>

@@ -1,0 +1,359 @@
+{
+  "entities": {
+    "AgriculturalParcel": {
+      "title": "AgriculturalParcel",
+      "description": "Delimited agricultural plot with WGS84 satellite polygon, borehole telemetry, soil lab parameters, and crop campaign data.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated farmer/operator UID owning this parcel."
+        },
+        "name": {
+          "type": "string",
+          "description": "Sector or parcel title (e.g., قطاع بسكرة - طولقة)."
+        },
+        "wilaya": {
+          "type": "string",
+          "description": "Administrative Wilaya code and name."
+        },
+        "commune": {
+          "type": "string",
+          "description": "Commune and agricultural zone."
+        },
+        "ilotNumber": {
+          "type": "string",
+          "description": "Cadastral ilot and parcel reference code."
+        },
+        "tenureType": {
+          "type": "string",
+          "description": "Land tenure classification (e.g., Concession, Melk)."
+        },
+        "areaHectares": {
+          "type": "number",
+          "description": "Calibrated surface area in hectares."
+        },
+        "coordinatesLabel": {
+          "type": "string",
+          "description": "WGS84 centroid coordinate string."
+        },
+        "polygonPoints": {
+          "type": "array",
+          "description": "Bounded list (3..20) of normalized x,y polygon vertices."
+        },
+        "wellPoint": {
+          "type": "string",
+          "description": "Normalized x,y coordinate of irrigation borehole (Forage)."
+        },
+        "wellDepthLabel": {
+          "type": "string",
+          "description": "Borehole label and depth in meters."
+        },
+        "ndviScore": {
+          "type": "number",
+          "description": "Latest satellite NDVI vegetation vigor index (0.0 to 1.0)."
+        },
+        "soilTexture": {
+          "type": "string",
+          "enum": ["sableux_limoneux", "argileux", "limoneux", "calcaire"],
+          "description": "Predominant soil texture classification."
+        },
+        "soilPh": {
+          "type": "number",
+          "description": "Soil pH level (3.0 to 11.0)."
+        },
+        "organicMatterPercent": {
+          "type": "number",
+          "description": "Soil organic matter percentage."
+        },
+        "salinityEc": {
+          "type": "number",
+          "description": "Electrical conductivity / salinity in dS/m."
+        },
+        "drainageStatus": {
+          "type": "string",
+          "description": "Root depth and water infiltration status."
+        },
+        "labDocumentName": {
+          "type": "string",
+          "description": "Attached INRAA / laboratory certificate file name."
+        },
+        "mainCrop": {
+          "type": "string",
+          "enum": ["deglet_nour", "pomme_de_terre", "olivier", "tomate_industrielle"],
+          "description": "Primary cultivated crop code."
+        },
+        "irrigationSystem": {
+          "type": "string",
+          "description": "Adopted irrigation method."
+        },
+        "estimatedYieldTonsPerHa": {
+          "type": "number",
+          "description": "Estimated yield in metric tons per hectare."
+        },
+        "plantingYear": {
+          "type": "string",
+          "description": "Year of plantation or start of exploitation."
+        },
+        "intercropping": {
+          "type": "string",
+          "description": "Associated intercropping cultures."
+        },
+        "linkedToMarket": {
+          "type": "boolean",
+          "description": "Whether this parcel is linked to a public market harvest listing."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "wilaya",
+        "commune",
+        "ilotNumber",
+        "tenureType",
+        "areaHectares",
+        "coordinatesLabel",
+        "polygonPoints",
+        "wellPoint",
+        "wellDepthLabel",
+        "ndviScore",
+        "soilTexture",
+        "soilPh",
+        "organicMatterPercent",
+        "salinityEc",
+        "drainageStatus",
+        "labDocumentName",
+        "mainCrop",
+        "irrigationSystem",
+        "estimatedYieldTonsPerHa",
+        "plantingYear",
+        "intercropping",
+        "linkedToMarket",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MarketListing": {
+      "title": "MarketListing",
+      "description": "Public agricultural market harvest announcement linked to a verified parcel.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated producer UID owning the listing."
+        },
+        "parcelId": {
+          "type": "string",
+          "description": "Referenced AgriculturalParcel document ID."
+        },
+        "operatorName": {
+          "type": "string",
+          "description": "Cooperative or farm operator display name."
+        },
+        "parcelReference": {
+          "type": "string",
+          "description": "Cadastral parcel code displayed on listing."
+        },
+        "cropType": {
+          "type": "string",
+          "enum": ["deglet_nour", "pomme_de_terre", "olivier", "tomate_industrielle"],
+          "description": "Harvest crop category."
+        },
+        "wilaya": {
+          "type": "string",
+          "description": "Origin Wilaya."
+        },
+        "availableTons": {
+          "type": "number",
+          "description": "Available harvest quantity in metric tons."
+        },
+        "pricePerKgDzd": {
+          "type": "number",
+          "description": "Unit price in Algerian Dinars per kg."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "sold"],
+          "description": "Listing lifecycle state; sold is terminal."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "parcelId",
+        "operatorName",
+        "parcelReference",
+        "cropType",
+        "wilaya",
+        "availableTons",
+        "pricePerKgDzd",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TransportRequest": {
+      "title": "TransportRequest",
+      "description": "Agricultural cold-chain and freight logistics dispatch request.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated farmer UID owning this transport request."
+        },
+        "parcelReference": {
+          "type": "string",
+          "description": "Origin parcel reference code."
+        },
+        "vehicleType": {
+          "type": "string",
+          "enum": ["refrigerated_truck", "flatbed_truck", "grain_hopper", "water_tanker"],
+          "description": "Selected agricultural transport vehicle category."
+        },
+        "originWilaya": {
+          "type": "string",
+          "description": "Pickup Wilaya and oasis/commune."
+        },
+        "destinationMarket": {
+          "type": "string",
+          "description": "Destination wholesale market, cold storage, or export hub."
+        },
+        "cargoTons": {
+          "type": "number",
+          "description": "Shipment weight in metric tons."
+        },
+        "scheduledDate": {
+          "type": "string",
+          "description": "Requested pickup date label."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_transit", "delivered"],
+          "description": "Logistics dispatch status; delivered is terminal."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "parcelReference",
+        "vehicleType",
+        "originWilaya",
+        "destinationMarket",
+        "cargoTons",
+        "scheduledDate",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ServiceBooking": {
+      "title": "ServiceBooking",
+      "description": "Agricultural technical, laboratory, mechanization, or drone service booking.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated farmer UID owning this service booking."
+        },
+        "serviceCategory": {
+          "type": "string",
+          "enum": ["soil_lab_inraa", "drone_ndvi_scan", "forage_drilling", "harvester_rental", "agronomic_advisory"],
+          "description": "Category of agricultural service."
+        },
+        "serviceTitle": {
+          "type": "string",
+          "description": "Localized service title."
+        },
+        "parcelReference": {
+          "type": "string",
+          "description": "Target parcel reference."
+        },
+        "wilaya": {
+          "type": "string",
+          "description": "Service location Wilaya."
+        },
+        "preferredDate": {
+          "type": "string",
+          "description": "Preferred intervention date."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Operator field instructions or sample details."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "confirmed", "completed"],
+          "description": "Booking status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "serviceCategory",
+        "serviceTitle",
+        "parcelReference",
+        "wilaya",
+        "preferredDate",
+        "notes",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/parcels/{parcelId}": {
+      "schema": "AgriculturalParcel",
+      "description": "Per-farmer delimited agricultural plots, soil analysis records, and crop sheets."
+    },
+    "/market_listings/{listingId}": {
+      "schema": "MarketListing",
+      "description": "Public market harvest announcements linked to verified agricultural parcels."
+    },
+    "/transport_requests/{requestId}": {
+      "schema": "TransportRequest",
+      "description": "Per-farmer agricultural freight and cold-chain logistics orders."
+    },
+    "/service_bookings/{bookingId}": {
+      "schema": "ServiceBooking",
+      "description": "Per-farmer agricultural lab, drone, mechanization, and borehole service bookings."
+    }
+  }
+}

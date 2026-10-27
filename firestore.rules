@@ -1,0 +1,255 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidParcel(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.wilaya is string && data.wilaya.size() >= 1 && data.wilaya.size() <= 80 &&
+             data.commune is string && data.commune.size() >= 1 && data.commune.size() <= 80 &&
+             data.ilotNumber is string && data.ilotNumber.size() >= 1 && data.ilotNumber.size() <= 60 &&
+             data.tenureType is string && data.tenureType.size() >= 1 && data.tenureType.size() <= 80 &&
+             data.areaHectares is number && data.areaHectares >= 0.01 && data.areaHectares <= 100000 &&
+             data.coordinatesLabel is string && data.coordinatesLabel.size() >= 1 && data.coordinatesLabel.size() <= 80 &&
+             data.polygonPoints is list && data.polygonPoints.size() >= 3 && data.polygonPoints.size() <= 20 &&
+             (data.polygonPoints.size() == 0 || (data.polygonPoints[0] is string && data.polygonPoints[0].size() <= 40)) &&
+             data.wellPoint is string && data.wellPoint.size() >= 1 && data.wellPoint.size() <= 40 &&
+             data.wellDepthLabel is string && data.wellDepthLabel.size() >= 1 && data.wellDepthLabel.size() <= 80 &&
+             data.ndviScore is number && data.ndviScore >= 0 && data.ndviScore <= 1 &&
+             data.soilTexture is string && data.soilTexture.size() <= 40 &&
+             data.soilTexture in ['sableux_limoneux', 'argileux', 'limoneux', 'calcaire'] &&
+             data.soilPh is number && data.soilPh >= 3 && data.soilPh <= 11 &&
+             data.organicMatterPercent is number && data.organicMatterPercent >= 0 && data.organicMatterPercent <= 100 &&
+             data.salinityEc is number && data.salinityEc >= 0 && data.salinityEc <= 50 &&
+             data.drainageStatus is string && data.drainageStatus.size() >= 1 && data.drainageStatus.size() <= 100 &&
+             data.labDocumentName is string && data.labDocumentName.size() <= 200 &&
+             data.mainCrop is string && data.mainCrop.size() <= 40 &&
+             data.mainCrop in ['deglet_nour', 'pomme_de_terre', 'olivier', 'tomate_industrielle'] &&
+             data.irrigationSystem is string && data.irrigationSystem.size() >= 1 && data.irrigationSystem.size() <= 100 &&
+             data.estimatedYieldTonsPerHa is number && data.estimatedYieldTonsPerHa >= 0 && data.estimatedYieldTonsPerHa <= 500 &&
+             data.plantingYear is string && data.plantingYear.size() >= 1 && data.plantingYear.size() <= 60 &&
+             data.intercropping is string && data.intercropping.size() <= 120 &&
+             data.linkedToMarket is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidMarketListing(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.parcelId is string && isValidId(data.parcelId) &&
+             data.operatorName is string && data.operatorName.size() >= 1 && data.operatorName.size() <= 100 &&
+             data.parcelReference is string && data.parcelReference.size() >= 1 && data.parcelReference.size() <= 80 &&
+             data.cropType is string && data.cropType.size() <= 40 &&
+             data.cropType in ['deglet_nour', 'pomme_de_terre', 'olivier', 'tomate_industrielle'] &&
+             data.wilaya is string && data.wilaya.size() >= 1 && data.wilaya.size() <= 80 &&
+             data.availableTons is number && data.availableTons > 0 && data.availableTons <= 100000 &&
+             data.pricePerKgDzd is number && data.pricePerKgDzd > 0 && data.pricePerKgDzd <= 100000 &&
+             data.status is string && data.status.size() <= 20 &&
+             data.status in ['active', 'sold'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTransportRequest(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.parcelReference is string && data.parcelReference.size() >= 1 && data.parcelReference.size() <= 80 &&
+             data.vehicleType is string && data.vehicleType.size() <= 40 &&
+             data.vehicleType in ['refrigerated_truck', 'flatbed_truck', 'grain_hopper', 'water_tanker'] &&
+             data.originWilaya is string && data.originWilaya.size() >= 1 && data.originWilaya.size() <= 80 &&
+             data.destinationMarket is string && data.destinationMarket.size() >= 1 && data.destinationMarket.size() <= 120 &&
+             data.cargoTons is number && data.cargoTons >= 0.1 && data.cargoTons <= 5000 &&
+             data.scheduledDate is string && data.scheduledDate.size() >= 1 && data.scheduledDate.size() <= 40 &&
+             data.status is string && data.status.size() <= 20 &&
+             data.status in ['pending', 'in_transit', 'delivered'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidServiceBooking(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.serviceCategory is string && data.serviceCategory.size() <= 40 &&
+             data.serviceCategory in ['soil_lab_inraa', 'drone_ndvi_scan', 'forage_drilling', 'harvester_rental', 'agronomic_advisory'] &&
+             data.serviceTitle is string && data.serviceTitle.size() >= 1 && data.serviceTitle.size() <= 120 &&
+             data.parcelReference is string && data.parcelReference.size() >= 1 && data.parcelReference.size() <= 80 &&
+             data.wilaya is string && data.wilaya.size() >= 1 && data.wilaya.size() <= 80 &&
+             data.preferredDate is string && data.preferredDate.size() >= 1 && data.preferredDate.size() <= 40 &&
+             data.notes is string && data.notes.size() <= 300 &&
+             data.status is string && data.status.size() <= 20 &&
+             data.status in ['requested', 'confirmed', 'completed'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /parcels/{parcelId} {
+      allow get: if isSignedIn() && isValidId(parcelId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(parcelId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'name', 'wilaya', 'commune', 'ilotNumber', 'tenureType',
+                         'areaHectares', 'coordinatesLabel', 'polygonPoints', 'wellPoint',
+                         'wellDepthLabel', 'ndviScore', 'soilTexture', 'soilPh',
+                         'organicMatterPercent', 'salinityEc', 'drainageStatus', 'labDocumentName',
+                         'mainCrop', 'irrigationSystem', 'estimatedYieldTonsPerHa', 'plantingYear',
+                         'intercropping', 'linkedToMarket', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'name', 'wilaya', 'commune', 'ilotNumber', 'tenureType',
+                         'areaHectares', 'coordinatesLabel', 'polygonPoints', 'wellPoint',
+                         'wellDepthLabel', 'ndviScore', 'soilTexture', 'soilPh',
+                         'organicMatterPercent', 'salinityEc', 'drainageStatus', 'labDocumentName',
+                         'mainCrop', 'irrigationSystem', 'estimatedYieldTonsPerHa', 'plantingYear',
+                         'intercropping', 'linkedToMarket', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidParcel(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(parcelId) &&
+                       isValidParcel(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'wilaya', 'commune', 'ilotNumber', 'tenureType',
+                           'areaHectares', 'coordinatesLabel', 'polygonPoints', 'wellPoint',
+                           'wellDepthLabel', 'ndviScore', 'soilTexture', 'soilPh',
+                           'organicMatterPercent', 'salinityEc', 'drainageStatus', 'labDocumentName',
+                           'mainCrop', 'irrigationSystem', 'estimatedYieldTonsPerHa', 'plantingYear',
+                           'intercropping', 'linkedToMarket', 'updatedAt'
+                         ]) ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['linkedToMarket', 'updatedAt'])
+                       );
+
+      allow delete: if isSignedIn() && isValidId(parcelId) && existing().userId == request.auth.uid;
+    }
+
+    match /market_listings/{listingId} {
+      allow get: if isSignedIn() && isValidId(listingId) &&
+                    (existing().userId == request.auth.uid || existing().status == 'active');
+      allow list: if isSignedIn() &&
+                     (existing().userId == request.auth.uid || existing().status == 'active');
+
+      allow create: if isSignedIn() &&
+                       isValidId(listingId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'parcelId', 'operatorName', 'parcelReference',
+                         'cropType', 'wilaya', 'availableTons', 'pricePerKgDzd',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'parcelId', 'operatorName', 'parcelReference',
+                         'cropType', 'wilaya', 'availableTons', 'pricePerKgDzd',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().status == 'active' &&
+                       isValidMarketListing(incoming()) &&
+                       exists(/databases/$(database)/documents/parcels/$(incoming().parcelId)) &&
+                       get(/databases/$(database)/documents/parcels/$(incoming().parcelId)).data.userId == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+                       isValidId(listingId) &&
+                       isValidMarketListing(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       existing().status != 'sold' &&
+                       incoming().userId == existing().userId &&
+                       incoming().parcelId == existing().parcelId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'operatorName', 'availableTons', 'pricePerKgDzd', 'updatedAt'
+                         ]) ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+                       );
+
+      allow delete: if isSignedIn() && isValidId(listingId) && existing().userId == request.auth.uid;
+    }
+
+    match /transport_requests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(requestId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'parcelReference', 'vehicleType', 'originWilaya',
+                         'destinationMarket', 'cargoTons', 'scheduledDate', 'status',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'parcelReference', 'vehicleType', 'originWilaya',
+                         'destinationMarket', 'cargoTons', 'scheduledDate', 'status',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().status == 'pending' &&
+                       isValidTransportRequest(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(requestId) &&
+                       isValidTransportRequest(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       existing().status != 'delivered' &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(requestId) && existing().userId == request.auth.uid;
+    }
+
+    match /service_bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'serviceCategory', 'serviceTitle', 'parcelReference',
+                         'wilaya', 'preferredDate', 'notes', 'status',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'serviceCategory', 'serviceTitle', 'parcelReference',
+                         'wilaya', 'preferredDate', 'notes', 'status',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().status == 'requested' &&
+                       isValidServiceBooking(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidServiceBooking(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       existing().status != 'completed' &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(bookingId) && existing().userId == request.auth.uid;
+    }
+  }
+}
