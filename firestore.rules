@@ -22,6 +22,126 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidRoleCode(role) {
+      return role is string &&
+             role in [
+               'farmer',
+               'trader',
+               'transporter',
+               'supplier',
+               'service_provider',
+               'storage_provider'
+             ];
+    }
+
+    // Validates bounded (0..6) list of valid role codes with strict uniqueness (zero duplicates)
+    function isValidAssignedRolesList(roles) {
+      return roles is list &&
+             roles.size() <= 6 &&
+             (roles.size() < 1 || isValidRoleCode(roles[0])) &&
+             (roles.size() < 2 || (isValidRoleCode(roles[1]) && roles[1] != roles[0])) &&
+             (roles.size() < 3 || (isValidRoleCode(roles[2]) && !(roles[2] in roles[0:2]))) &&
+             (roles.size() < 4 || (isValidRoleCode(roles[3]) && !(roles[3] in roles[0:3]))) &&
+             (roles.size() < 5 || (isValidRoleCode(roles[4]) && !(roles[4] in roles[0:4]))) &&
+             (roles.size() < 6 || (isValidRoleCode(roles[5]) && !(roles[5] in roles[0:5])));
+    }
+
+    function callerHasAssignedRole(roleCode) {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             roleCode in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedRoles;
+    }
+
+    function isValidUserAccountProfile(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+             data.email is string && data.email.size() <= 160 &&
+             data.preferredLanguage is string && data.preferredLanguage in ['AR', 'FR', 'EN'] &&
+             isValidAssignedRolesList(data.assignedRoles) &&
+             data.defaultRole is string && data.defaultRole.size() <= 32 &&
+             (
+               (data.assignedRoles.size() == 0 && data.defaultRole == '' && data.onboardingCompleted == false) ||
+               (data.assignedRoles.size() >= 1 && data.defaultRole in data.assignedRoles)
+             ) &&
+             data.onboardingCompleted is bool &&
+             (!data.onboardingCompleted || (data.assignedRoles.size() >= 1 && data.defaultRole in data.assignedRoles)) &&
+             data.onboardingStep is int && data.onboardingStep >= 1 && data.onboardingStep <= 5 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidRoleSpecificProfile(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             isValidRoleCode(data.roleCode) &&
+             data.businessName is string && data.businessName.size() <= 120 &&
+             data.wilaya is string && data.wilaya.size() <= 80 &&
+             data.commune is string && data.commune.size() <= 80 &&
+             data.activityType is string && data.activityType.size() <= 120 &&
+             data.capacityOrArea is string && data.capacityOrArea.size() <= 120 &&
+             data.qualificationsOrDetails is string && data.qualificationsOrDetails.size() <= 300 &&
+             data.isProfileComplete is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPartnerCatalogItem(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.providerRole is string &&
+             data.providerRole in ['farmer', 'transporter', 'supplier', 'service_provider', 'storage_provider'] &&
+             data.providerName is string && data.providerName.size() >= 1 && data.providerName.size() <= 120 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 60 &&
+             data.wilaya is string && data.wilaya.size() >= 1 && data.wilaya.size() <= 80 &&
+             data.priceDzd is number && data.priceDzd >= 0 && data.priceDzd <= 10000000 &&
+             data.unitLabel is string && data.unitLabel.size() >= 1 && data.unitLabel.size() <= 40 &&
+             data.availableQuantityOrCapacity is number &&
+             data.availableQuantityOrCapacity >= 0 && data.availableQuantityOrCapacity <= 1000000 &&
+             data.description is string && data.description.size() <= 300 &&
+             data.status is string && data.status in ['active', 'paused', 'closed'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidMarketplaceOrder(data) {
+      return data.requesterId is string && data.requesterId.size() >= 1 && data.requesterId.size() <= 128 &&
+             data.requesterName is string && data.requesterName.size() >= 1 && data.requesterName.size() <= 120 &&
+             isValidRoleCode(data.requesterRole) &&
+             data.providerId is string && data.providerId.size() <= 128 &&
+             isValidRoleCode(data.targetRole) &&
+             data.targetItemId is string && data.targetItemId.size() <= 128 &&
+             data.orderType is string &&
+             data.orderType in [
+               'purchase_request',
+               'transport_quote',
+               'supply_order',
+               'service_quote',
+               'storage_reservation'
+             ] &&
+             data.itemTitle is string && data.itemTitle.size() >= 1 && data.itemTitle.size() <= 120 &&
+             data.wilaya is string && data.wilaya.size() >= 1 && data.wilaya.size() <= 80 &&
+             data.quantity is number && data.quantity > 0 && data.quantity <= 1000000 &&
+             data.unitLabel is string && data.unitLabel.size() >= 1 && data.unitLabel.size() <= 40 &&
+             data.proposedPriceDzd is number && data.proposedPriceDzd >= 0 && data.proposedPriceDzd <= 100000000 &&
+             data.notes is string && data.notes.size() <= 300 &&
+             data.status is string &&
+             data.status in ['pending', 'quoted', 'accepted', 'completed', 'cancelled'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPlatformMessage(data) {
+      return data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
+             data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+             isValidRoleCode(data.senderRole) &&
+             data.recipientId is string && data.recipientId.size() >= 1 && data.recipientId.size() <= 128 &&
+             data.recipientName is string && data.recipientName.size() >= 1 && data.recipientName.size() <= 120 &&
+             data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 120 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 500 &&
+             data.isRead is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
     function isValidParcel(data) {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.userId == request.auth.uid &&
@@ -92,7 +212,25 @@ service cloud.firestore {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.userId == request.auth.uid &&
              data.serviceCategory is string && data.serviceCategory.size() <= 40 &&
-             data.serviceCategory in ['soil_lab_inraa', 'drone_ndvi_scan', 'forage_drilling', 'harvester_rental', 'agronomic_advisory'] &&
+             data.serviceCategory in [
+               'plowing_leveling',
+               'tractor_machinery_rental',
+               'irrigation_install_maint',
+               'farm_labor_supply',
+               'harvesting_picking',
+               'seeds_seedlings',
+               'fertilizers_supply',
+               'cold_storage_warehouses',
+               'agricultural_transport_service',
+               'agronomist_consultation',
+               'market_prices_service',
+               'agri_weather_service',
+               'soil_lab_inraa',
+               'drone_ndvi_scan',
+               'forage_drilling',
+               'harvester_rental',
+               'agronomic_advisory'
+             ] &&
              data.serviceTitle is string && data.serviceTitle.size() >= 1 && data.serviceTitle.size() <= 120 &&
              data.parcelReference is string && data.parcelReference.size() >= 1 && data.parcelReference.size() <= 80 &&
              data.wilaya is string && data.wilaya.size() >= 1 && data.wilaya.size() <= 80 &&
@@ -102,6 +240,227 @@ service cloud.firestore {
              data.status in ['requested', 'confirmed', 'completed'] &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'displayName', 'email', 'preferredLanguage',
+                         'assignedRoles', 'defaultRole', 'onboardingCompleted',
+                         'onboardingStep', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'email', 'preferredLanguage',
+                         'assignedRoles', 'defaultRole', 'onboardingCompleted',
+                         'onboardingStep', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserAccountProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       isValidUserAccountProfile(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'displayName', 'email', 'preferredLanguage',
+                         'assignedRoles', 'defaultRole', 'onboardingCompleted',
+                         'onboardingStep', 'updatedAt'
+                       ]);
+
+      allow delete: if false;
+    }
+
+    match /role_profiles/{profileId} {
+      allow get: if isSignedIn() && isValidId(profileId) &&
+                    (profileId in [
+                       request.auth.uid + '_farmer',
+                       request.auth.uid + '_trader',
+                       request.auth.uid + '_transporter',
+                       request.auth.uid + '_supplier',
+                       request.auth.uid + '_service_provider',
+                       request.auth.uid + '_storage_provider'
+                     ] ||
+                     (resource != null && existing().userId == request.auth.uid));
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(profileId) &&
+                       profileId == (request.auth.uid + '_' + incoming().roleCode) &&
+                       incoming().keys().hasAll([
+                         'userId', 'roleCode', 'businessName', 'wilaya', 'commune',
+                         'activityType', 'capacityOrArea', 'qualificationsOrDetails',
+                         'isProfileComplete', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'roleCode', 'businessName', 'wilaya', 'commune',
+                         'activityType', 'capacityOrArea', 'qualificationsOrDetails',
+                         'isProfileComplete', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidRoleSpecificProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(profileId) &&
+                       profileId == (request.auth.uid + '_' + incoming().roleCode) &&
+                       isValidRoleSpecificProfile(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().roleCode == existing().roleCode &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'businessName', 'wilaya', 'commune', 'activityType',
+                         'capacityOrArea', 'qualificationsOrDetails',
+                         'isProfileComplete', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(profileId) && existing().userId == request.auth.uid;
+    }
+
+    match /partner_catalog/{itemId} {
+      allow get: if isSignedIn() && isValidId(itemId) &&
+                    (existing().userId == request.auth.uid || existing().status == 'active');
+      allow list: if isSignedIn() &&
+                     (existing().userId == request.auth.uid || existing().status == 'active');
+
+      // Server-side RBAC: creator must hold incoming().providerRole in /users/{uid}.assignedRoles
+      allow create: if isSignedIn() &&
+                       isValidId(itemId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'providerRole', 'providerName', 'title', 'category',
+                         'wilaya', 'priceDzd', 'unitLabel', 'availableQuantityOrCapacity',
+                         'description', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'providerRole', 'providerName', 'title', 'category',
+                         'wilaya', 'priceDzd', 'unitLabel', 'availableQuantityOrCapacity',
+                         'description', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidPartnerCatalogItem(incoming()) &&
+                       callerHasAssignedRole(incoming().providerRole);
+
+      allow update: if isSignedIn() &&
+                       isValidId(itemId) &&
+                       isValidPartnerCatalogItem(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().providerRole == existing().providerRole &&
+                       incoming().createdAt == existing().createdAt &&
+                       callerHasAssignedRole(incoming().providerRole) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'providerName', 'title', 'category', 'wilaya', 'priceDzd',
+                         'unitLabel', 'availableQuantityOrCapacity', 'description',
+                         'status', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(itemId) && existing().userId == request.auth.uid;
+    }
+
+    match /marketplace_orders/{orderId} {
+      allow get, list: if isSignedIn() &&
+                          (
+                            existing().requesterId == request.auth.uid ||
+                            existing().providerId == request.auth.uid ||
+                            (
+                              existing().providerId == '' &&
+                              existing().status == 'pending' &&
+                              callerHasAssignedRole(existing().targetRole)
+                            )
+                          );
+
+      allow create: if isSignedIn() &&
+                       isValidId(orderId) &&
+                       incoming().requesterId == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       incoming().keys().hasAll([
+                         'requesterId', 'requesterName', 'requesterRole', 'providerId',
+                         'targetRole', 'targetItemId', 'orderType', 'itemTitle', 'wilaya',
+                         'quantity', 'unitLabel', 'proposedPriceDzd', 'notes', 'status',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'requesterId', 'requesterName', 'requesterRole', 'providerId',
+                         'targetRole', 'targetItemId', 'orderType', 'itemTitle', 'wilaya',
+                         'quantity', 'unitLabel', 'proposedPriceDzd', 'notes', 'status',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidMarketplaceOrder(incoming()) &&
+                       callerHasAssignedRole(incoming().requesterRole);
+
+      allow update: if isSignedIn() &&
+                       isValidId(orderId) &&
+                       isValidMarketplaceOrder(incoming()) &&
+                       !(existing().status in ['completed', 'cancelled']) &&
+                       incoming().requesterId == existing().requesterId &&
+                       incoming().requesterRole == existing().requesterRole &&
+                       incoming().targetRole == existing().targetRole &&
+                       incoming().orderType == existing().orderType &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         (
+                           existing().requesterId == request.auth.uid &&
+                           incoming().providerId == existing().providerId &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'notes', 'status', 'updatedAt'
+                           ])
+                         ) ||
+                         (
+                           existing().providerId == request.auth.uid &&
+                           incoming().providerId == existing().providerId &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'proposedPriceDzd', 'notes', 'status', 'updatedAt'
+                           ])
+                         ) ||
+                         (
+                           existing().providerId == '' &&
+                           existing().status == 'pending' &&
+                           incoming().providerId == request.auth.uid &&
+                           callerHasAssignedRole(existing().targetRole) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'providerId', 'proposedPriceDzd', 'notes', 'status', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if false;
+    }
+
+    match /messages/{messageId} {
+      allow get, list: if isSignedIn() &&
+                          (existing().senderId == request.auth.uid ||
+                           existing().recipientId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(messageId) &&
+                       incoming().senderId == request.auth.uid &&
+                       incoming().isRead == false &&
+                       incoming().keys().hasAll([
+                         'senderId', 'senderName', 'senderRole', 'recipientId',
+                         'recipientName', 'subject', 'body', 'isRead',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'senderId', 'senderName', 'senderRole', 'recipientId',
+                         'recipientName', 'subject', 'body', 'isRead',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidPlatformMessage(incoming()) &&
+                       callerHasAssignedRole(incoming().senderRole);
+
+      allow update: if isSignedIn() &&
+                       isValidId(messageId) &&
+                       existing().recipientId == request.auth.uid &&
+                       isValidPlatformMessage(incoming()) &&
+                       incoming().senderId == existing().senderId &&
+                       incoming().recipientId == existing().recipientId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['isRead', 'updatedAt']);
+
+      allow delete: if false;
     }
 
     match /parcels/{parcelId} {
@@ -250,6 +609,321 @@ service cloud.firestore {
                        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
 
       allow delete: if isSignedIn() && isValidId(bookingId) && existing().userId == request.auth.uid;
+    }
+
+    function isValidAiConversation(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             isValidRoleCode(data.activeRole) &&
+             data.language is string && data.language in ['AR', 'FR', 'EN'] &&
+             data.messageCount is int && data.messageCount >= 0 && data.messageCount <= 500 &&
+             data.lastMessagePreview is string && data.lastMessagePreview.size() <= 240 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAiChatMessage(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.conversationId is string && isValidId(data.conversationId) &&
+             data.sender is string && data.sender in ['user', 'assistant'] &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 4000 &&
+             isValidRoleCode(data.activeRole) &&
+             data.verifiedDataSummary is string && data.verifiedDataSummary.size() <= 1500 &&
+             data.hasVerifiedPlatformData is bool &&
+             data.promptTokensEstimate is int && data.promptTokensEstimate >= 0 && data.promptTokensEstimate <= 20000 &&
+             data.completionTokensEstimate is int && data.completionTokensEstimate >= 0 && data.completionTokensEstimate <= 20000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidAiUsageQuota(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.dayKey is string && data.dayKey.size() == 10 &&
+             data.dayKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+             data.dailyRequestCount is int && data.dailyRequestCount >= 0 && data.dailyRequestCount <= 100 &&
+             data.dailyTokensEstimate is int && data.dailyTokensEstimate >= 0 && data.dailyTokensEstimate <= 300000 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /ai_conversations/{conversationId} {
+      allow get: if isSignedIn() && isValidId(conversationId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(conversationId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'title', 'activeRole', 'language',
+                         'messageCount', 'lastMessagePreview', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'title', 'activeRole', 'language',
+                         'messageCount', 'lastMessagePreview', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidAiConversation(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(conversationId) &&
+                       isValidAiConversation(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'title', 'activeRole', 'language',
+                         'messageCount', 'lastMessagePreview', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(conversationId) && existing().userId == request.auth.uid;
+    }
+
+    match /ai_messages/{messageId} {
+      allow get: if isSignedIn() && isValidId(messageId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(messageId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'conversationId', 'sender', 'content',
+                         'activeRole', 'verifiedDataSummary', 'hasVerifiedPlatformData',
+                         'promptTokensEstimate', 'completionTokensEstimate', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'conversationId', 'sender', 'content',
+                         'activeRole', 'verifiedDataSummary', 'hasVerifiedPlatformData',
+                         'promptTokensEstimate', 'completionTokensEstimate', 'createdAt'
+                       ]) &&
+                       isValidAiChatMessage(incoming()) &&
+                       exists(/databases/$(database)/documents/ai_conversations/$(incoming().conversationId)) &&
+                       get(/databases/$(database)/documents/ai_conversations/$(incoming().conversationId)).data.userId == request.auth.uid;
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() && isValidId(messageId) && existing().userId == request.auth.uid;
+    }
+
+    match /ai_usage_quotas/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'dayKey', 'dailyRequestCount',
+                         'dailyTokensEstimate', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'dayKey', 'dailyRequestCount',
+                         'dailyTokensEstimate', 'updatedAt'
+                       ]) &&
+                       isValidAiUsageQuota(incoming());
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       isValidAiUsageQuota(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'dayKey', 'dailyRequestCount', 'dailyTokensEstimate', 'updatedAt'
+                       ]);
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Fellah Matin (أخبار الصباح) — Editorial RBAC, News Articles, Sources & Preferences
+    // -------------------------------------------------------------------------
+    function isEditorialAdmin() {
+      return isSignedIn() && (
+        ('email' in request.auth.token && request.auth.token.email == 'mehdi.hamdani.net@gmail.com') ||
+        exists(/databases/$(database)/documents/editorial_admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidHttpsUrl(url) {
+      return url is string &&
+             url.size() >= 10 &&
+             url.size() <= 500 &&
+             url.matches('^https://[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$');
+    }
+
+    function isValidNewsCategory(cat) {
+      return cat is string &&
+             cat in [
+               'gov_announcements',
+               'crop_production',
+               'market_availability',
+               'weather_alerts',
+               'inputs_and_machinery',
+               'transport_logistics',
+               'cold_storage_postharvest',
+               'services_and_training',
+               'research_and_tech',
+               'events_and_fairs'
+             ];
+    }
+
+    function isValidPreferredCategoriesList(cats) {
+      return cats is list &&
+             cats.size() <= 10 &&
+             (cats.size() < 1 || isValidNewsCategory(cats[0])) &&
+             (cats.size() < 2 || isValidNewsCategory(cats[1])) &&
+             (cats.size() < 3 || isValidNewsCategory(cats[2])) &&
+             (cats.size() < 4 || isValidNewsCategory(cats[3])) &&
+             (cats.size() < 5 || isValidNewsCategory(cats[4])) &&
+             (cats.size() < 6 || isValidNewsCategory(cats[5])) &&
+             (cats.size() < 7 || isValidNewsCategory(cats[6])) &&
+             (cats.size() < 8 || isValidNewsCategory(cats[7])) &&
+             (cats.size() < 9 || isValidNewsCategory(cats[8])) &&
+             (cats.size() < 10 || isValidNewsCategory(cats[9]));
+    }
+
+    function isValidNewsArticle(data) {
+      return data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+             data.title is string && data.title.size() >= 4 && data.title.size() <= 240 &&
+             data.summary is string && data.summary.size() >= 10 && data.summary.size() <= 1200 &&
+             data.sourceName is string && data.sourceName.size() >= 2 && data.sourceName.size() <= 120 &&
+             isValidHttpsUrl(data.originalUrl) &&
+             data.publishedAtIso is string && data.publishedAtIso.size() >= 10 && data.publishedAtIso.size() <= 40 &&
+             data.retrievedAt is timestamp && data.retrievedAt <= request.time &&
+             isValidNewsCategory(data.category) &&
+             data.language is string && data.language in ['AR', 'FR', 'EN'] &&
+             data.wilaya is string && data.wilaya.size() <= 80 &&
+             data.imageUrl is string && (data.imageUrl == '' || isValidHttpsUrl(data.imageUrl)) &&
+             data.verificationStatus is string &&
+             data.verificationStatus in ['verified_source', 'editorial_verified', 'unverified'] &&
+             data.moderationStatus is string &&
+             data.moderationStatus in ['pending_review', 'approved', 'rejected'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidNewsSource(data) {
+      return data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+             isValidHttpsUrl(data.baseUrl) && data.baseUrl.size() <= 300 &&
+             isValidHttpsUrl(data.feedUrl) &&
+             data.sourceType is string &&
+             data.sourceType in [
+               'official_institution',
+               'meteorological',
+               'research_university',
+               'agri_publication',
+               'market_data',
+               'logistics_regulatory'
+             ] &&
+             data.language is string && data.language in ['AR', 'FR', 'EN'] &&
+             data.isEnabled is bool &&
+             data.lastError is string && data.lastError.size() <= 300 &&
+             data.lastCheckedAt is timestamp && data.lastCheckedAt <= request.time &&
+             data.updatedBy is string && data.updatedBy == request.auth.uid &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserNewsPreferences(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             isValidPreferredCategoriesList(data.preferredCategories) &&
+             data.preferredRegion is string && data.preferredRegion.size() <= 80 &&
+             data.preferredLanguage is string && data.preferredLanguage in ['ALL', 'AR', 'FR', 'EN'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /editorial_admins/{adminId} {
+      allow get: if isSignedIn() && request.auth.uid == adminId;
+      allow list, create, update, delete: if false;
+    }
+
+    match /news_articles/{articleId} {
+      // Signed-in users can read published/approved articles only; editorial admins can inspect pending/rejected queue
+      allow get, list: if isSignedIn() &&
+                          (existing().moderationStatus == 'approved' || isEditorialAdmin());
+
+      allow create: if isEditorialAdmin() &&
+                       isValidId(articleId) &&
+                       incoming().authorId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'authorId', 'title', 'summary', 'sourceName', 'originalUrl',
+                         'publishedAtIso', 'retrievedAt', 'category', 'language',
+                         'wilaya', 'imageUrl', 'verificationStatus', 'moderationStatus',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'authorId', 'title', 'summary', 'sourceName', 'originalUrl',
+                         'publishedAtIso', 'retrievedAt', 'category', 'language',
+                         'wilaya', 'imageUrl', 'verificationStatus', 'moderationStatus',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidNewsArticle(incoming());
+
+      allow update: if isEditorialAdmin() &&
+                       isValidId(articleId) &&
+                       isValidNewsArticle(incoming()) &&
+                       incoming().authorId == existing().authorId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'title', 'summary', 'sourceName', 'originalUrl',
+                         'publishedAtIso', 'retrievedAt', 'category', 'language',
+                         'wilaya', 'imageUrl', 'verificationStatus', 'moderationStatus',
+                         'updatedAt'
+                       ]);
+
+      allow delete: if isEditorialAdmin() && isValidId(articleId);
+    }
+
+    match /news_sources/{sourceId} {
+      allow get, list: if isSignedIn() &&
+                          (existing().isEnabled == true || isEditorialAdmin());
+
+      allow create: if isEditorialAdmin() &&
+                       isValidId(sourceId) &&
+                       incoming().keys().hasAll([
+                         'name', 'baseUrl', 'feedUrl', 'sourceType', 'language',
+                         'isEnabled', 'lastError', 'lastCheckedAt', 'updatedBy', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'name', 'baseUrl', 'feedUrl', 'sourceType', 'language',
+                         'isEnabled', 'lastError', 'lastCheckedAt', 'updatedBy', 'updatedAt'
+                       ]) &&
+                       isValidNewsSource(incoming());
+
+      allow update: if isEditorialAdmin() &&
+                       isValidId(sourceId) &&
+                       isValidNewsSource(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'name', 'baseUrl', 'feedUrl', 'sourceType', 'language',
+                         'isEnabled', 'lastError', 'lastCheckedAt', 'updatedBy', 'updatedAt'
+                       ]);
+
+      allow delete: if isEditorialAdmin() && isValidId(sourceId);
+    }
+
+    match /user_news_preferences/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'preferredCategories', 'preferredRegion',
+                         'preferredLanguage', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'preferredCategories', 'preferredRegion',
+                         'preferredLanguage', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserNewsPreferences(incoming());
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       isValidUserNewsPreferences(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'preferredCategories', 'preferredRegion',
+                         'preferredLanguage', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && request.auth.uid == userId;
     }
   }
 }

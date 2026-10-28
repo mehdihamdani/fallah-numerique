@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,27 +41,40 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Handyman
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Handyman
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.LocalShipping
+import androidx.compose.material.icons.outlined.Mail
 import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.Button
@@ -90,6 +104,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,15 +122,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
+import com.example.data.ai.FellahPlatformDataSnapshot
 import com.example.data.model.AppLanguage
+import com.example.data.model.RoleNavigationConfig
+import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
 import com.example.ui.auth.HexagonShape
 import com.example.ui.components.CropsAndCampaignCard
 import com.example.ui.components.InteractiveSatelliteMapSection
+import com.example.ui.components.OfflineRegionsManagerDialog
 import com.example.ui.components.SoilCharacteristicsCard
+import com.example.ui.viewmodel.FellahAiViewModel
+import com.example.ui.viewmodel.FellahMatinViewModel
 import com.example.ui.viewmodel.FellahViewModel
+import com.example.ui.viewmodel.UiState
 import com.example.util.ParcelPdfExporter
+import com.example.util.RoleStrings
 import com.google.firebase.auth.FirebaseUser
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -125,6 +149,8 @@ fun FellahWorkspaceScreen(
   viewModel: FellahViewModel,
   currentUser: FirebaseUser,
   onSignOut: () -> Unit,
+  customAiViewModel: FellahAiViewModel? = null,
+  customMatinViewModel: FellahMatinViewModel? = null,
 ) {
   val context = LocalContext.current
   val editorState by viewModel.editorState.collectAsStateWithLifecycle()
@@ -132,6 +158,62 @@ fun FellahWorkspaceScreen(
   val marketListingsState by viewModel.marketListingsState.collectAsStateWithLifecycle()
   val transportRequestsState by viewModel.transportRequestsState.collectAsStateWithLifecycle()
   val serviceBookingsState by viewModel.serviceBookingsState.collectAsStateWithLifecycle()
+  val offlineRegions by viewModel.offlineRegionsState.collectAsStateWithLifecycle()
+  val pendingOfflineWrites by viewModel.pendingOfflineWritesCount.collectAsStateWithLifecycle()
+  val userAccountState by viewModel.userAccountState.collectAsStateWithLifecycle()
+  val roleProfiles by viewModel.roleProfilesState.collectAsStateWithLifecycle()
+  val activePartnerCatalogState by viewModel.activePartnerCatalogState.collectAsStateWithLifecycle()
+  val userPartnerCatalogState by viewModel.userPartnerCatalogState.collectAsStateWithLifecycle()
+  val userOrdersState by viewModel.userOrdersState.collectAsStateWithLifecycle()
+  val openRoleOrders by viewModel.openRoleOrdersState.collectAsStateWithLifecycle()
+  val accountMessages by viewModel.accountMessagesState.collectAsStateWithLifecycle()
+
+  val assignedRoles =
+    ((userAccountState as? UiState.Success)?.data?.parsedAssignedRoles())
+      ?.takeIf { it.isNotEmpty() } ?: listOf(editorState.activeRole)
+
+  val aiViewModel: FellahAiViewModel =
+    customAiViewModel
+      ?: viewModel(
+        key = "fellah_ai_${currentUser.uid}",
+        factory = FellahAiViewModel.provideFactory(authenticatedUserId = currentUser.uid),
+      )
+  val matinViewModel: FellahMatinViewModel =
+    customMatinViewModel
+      ?: viewModel(
+        key = "fellah_matin_${currentUser.uid}",
+        factory = FellahMatinViewModel.provideFactory(authenticatedUserId = currentUser.uid),
+      )
+  var showAiModalSheet by rememberSaveable { mutableStateOf(false) }
+
+  val activeMarketListingsList =
+    (marketListingsState as? UiState.Success)?.data ?: emptyList()
+  val activePartnerCatalogList =
+    (activePartnerCatalogState as? UiState.Success)?.data ?: emptyList()
+
+  val aiPlatformSnapshot =
+    remember(
+      currentUser.uid,
+      editorState.activeRole,
+      assignedRoles,
+      activeMarketListingsList,
+      activePartnerCatalogList,
+      editorState.activeParcel,
+      editorState.agriWeatherReport,
+      editorState.defaultWilaya,
+    ) {
+      FellahPlatformDataSnapshot(
+        isAuthenticated = true,
+        callerUserId = currentUser.uid,
+        activeRole = editorState.activeRole,
+        assignedRoles = assignedRoles,
+        activeMarketListings = activeMarketListingsList,
+        activePartnerCatalog = activePartnerCatalogList,
+        ownActiveParcel = editorState.activeParcel,
+        verifiedWeatherReport = editorState.agriWeatherReport,
+        defaultWilaya = editorState.defaultWilaya,
+      )
+    }
 
   val layoutDirection =
     if (editorState.language == AppLanguage.AR) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -211,9 +293,13 @@ fun FellahWorkspaceScreen(
           ) {
             OperatorSidebarContent(
               activeSection = editorState.activeSection,
+              activeRole = editorState.activeRole,
+              assignedRoles = assignedRoles,
+              language = editorState.language,
               userDisplayName = currentUser.displayName ?: "Coopérative El Baraka",
               userEmail = currentUser.email ?: "Mascara (Zone Ouest)",
               onSelectSection = { viewModel.navigateToSection(it) },
+              onSwitchRole = viewModel::switchActiveRole,
               onSignOut = onSignOut,
             )
           }
@@ -227,10 +313,18 @@ fun FellahWorkspaceScreen(
                 isCompact = false,
                 searchQuery = editorState.searchQuery,
                 language = editorState.language,
+                activeRole = editorState.activeRole,
+                assignedRoles = assignedRoles,
                 userDisplayName = currentUser.displayName ?: "Agriculteur",
+                isEffectiveOffline = editorState.isEffectiveOffline,
+                pendingOfflineWrites = pendingOfflineWrites,
+                onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
                 onOpenDrawer = {},
                 onSearchChanged = viewModel::updateSearchQuery,
                 onLanguageSelected = viewModel::setLanguage,
+                onSwitchRole = viewModel::switchActiveRole,
+                onManageRolesInSettings = { viewModel.navigateToSection(WorkspaceSection.SETTINGS) },
+                onOpenFellahAi = { showAiModalSheet = true },
                 onNewHarvest = viewModel::startNewParcelDraft,
                 onSignOut = onSignOut,
               )
@@ -250,6 +344,7 @@ fun FellahWorkspaceScreen(
                   activeSection = editorState.activeSection,
                   language = editorState.language,
                   onSelectSection = viewModel::navigateToSection,
+                  activeRole = editorState.activeRole,
                 )
               }
             },
@@ -257,12 +352,24 @@ fun FellahWorkspaceScreen(
             WorkspaceBodyContent(
               isTwoColumnGrid = true,
               editorState = editorState,
+              assignedRoles = assignedRoles,
+              roleProfiles = roleProfiles,
+              activePartnerCatalogState = activePartnerCatalogState,
+              userPartnerCatalogState = userPartnerCatalogState,
+              userOrdersState = userOrdersState,
+              openRoleOrders = openRoleOrders,
+              accountMessages = accountMessages,
               userParcelsState = userParcelsState,
               marketListingsState = marketListingsState,
               transportRequestsState = transportRequestsState,
               serviceBookingsState = serviceBookingsState,
+              offlineRegions = offlineRegions,
+              pendingOfflineWrites = pendingOfflineWrites,
               currentUser = currentUser,
               viewModel = viewModel,
+              aiViewModel = aiViewModel,
+              matinViewModel = matinViewModel,
+              aiPlatformSnapshot = aiPlatformSnapshot,
               onSignOut = onSignOut,
               onExportPdf = {
                 val safeCode =
@@ -295,10 +402,17 @@ fun FellahWorkspaceScreen(
             ) {
               OperatorSidebarContent(
                 activeSection = editorState.activeSection,
+                activeRole = editorState.activeRole,
+                assignedRoles = assignedRoles,
+                language = editorState.language,
                 userDisplayName = currentUser.displayName ?: "Coopérative El Baraka",
                 userEmail = currentUser.email ?: "Mascara (Zone Ouest)",
                 onSelectSection = { section ->
                   viewModel.navigateToSection(section)
+                  scope.launch { drawerState.close() }
+                },
+                onSwitchRole = { role ->
+                  viewModel.switchActiveRole(role)
                   scope.launch { drawerState.close() }
                 },
                 onSignOut = onSignOut,
@@ -315,10 +429,18 @@ fun FellahWorkspaceScreen(
                 isCompact = true,
                 searchQuery = editorState.searchQuery,
                 language = editorState.language,
+                activeRole = editorState.activeRole,
+                assignedRoles = assignedRoles,
                 userDisplayName = currentUser.displayName ?: "Agriculteur",
+                isEffectiveOffline = editorState.isEffectiveOffline,
+                pendingOfflineWrites = pendingOfflineWrites,
+                onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
                 onOpenDrawer = { scope.launch { drawerState.open() } },
                 onSearchChanged = viewModel::updateSearchQuery,
                 onLanguageSelected = viewModel::setLanguage,
+                onSwitchRole = viewModel::switchActiveRole,
+                onManageRolesInSettings = { viewModel.navigateToSection(WorkspaceSection.SETTINGS) },
+                onOpenFellahAi = { showAiModalSheet = true },
                 onNewHarvest = viewModel::startNewParcelDraft,
                 onSignOut = onSignOut,
               )
@@ -338,6 +460,7 @@ fun FellahWorkspaceScreen(
                   activeSection = editorState.activeSection,
                   language = editorState.language,
                   onSelectSection = viewModel::navigateToSection,
+                  activeRole = editorState.activeRole,
                 )
               }
             },
@@ -345,12 +468,24 @@ fun FellahWorkspaceScreen(
             WorkspaceBodyContent(
               isTwoColumnGrid = false,
               editorState = editorState,
+              assignedRoles = assignedRoles,
+              roleProfiles = roleProfiles,
+              activePartnerCatalogState = activePartnerCatalogState,
+              userPartnerCatalogState = userPartnerCatalogState,
+              userOrdersState = userOrdersState,
+              openRoleOrders = openRoleOrders,
+              accountMessages = accountMessages,
               userParcelsState = userParcelsState,
               marketListingsState = marketListingsState,
               transportRequestsState = transportRequestsState,
               serviceBookingsState = serviceBookingsState,
+              offlineRegions = offlineRegions,
+              pendingOfflineWrites = pendingOfflineWrites,
               currentUser = currentUser,
               viewModel = viewModel,
+              aiViewModel = aiViewModel,
+              matinViewModel = matinViewModel,
+              aiPlatformSnapshot = aiPlatformSnapshot,
               onSignOut = onSignOut,
               onExportPdf = {
                 val safeCode =
@@ -399,6 +534,35 @@ fun FellahWorkspaceScreen(
         onConfirmPublish = viewModel::publishParcelToMarket,
       )
     }
+
+    if (editorState.showOfflineRegionsDialog) {
+      OfflineRegionsManagerDialog(
+        currentParcelName = editorState.activeParcel.name,
+        isEffectiveOffline = editorState.isEffectiveOffline,
+        isManualOfflineMode = editorState.isManualOfflineMode,
+        isDownloading = editorState.isDownloadingOfflineRegion,
+        isSyncingQueue = editorState.isSyncingOfflineQueue,
+        pendingWritesCount = pendingOfflineWrites,
+        downloadedRegions = offlineRegions,
+        onToggleManualOffline = viewModel::toggleManualOfflineMode,
+        onSyncPendingNow = viewModel::syncPendingOfflineQueueNow,
+        onDownloadCurrentParcel = viewModel::downloadCurrentParcelOfflineRegion,
+        onDownloadPresetRegion = viewModel::downloadPresetOfflineRegion,
+        onOpenCachedRegion = viewModel::openOfflineCachedRegion,
+        onDeleteRegion = viewModel::deleteOfflineRegion,
+        onDismiss = { viewModel.setShowOfflineRegionsDialog(false) },
+      )
+    }
+
+    if (showAiModalSheet) {
+      FellahAiModalSheet(
+        aiViewModel = aiViewModel,
+        language = editorState.language,
+        activeRole = editorState.activeRole,
+        platformSnapshot = aiPlatformSnapshot,
+        onDismiss = { showAiModalSheet = false },
+      )
+    }
   }
 }
 
@@ -407,12 +571,24 @@ fun FellahWorkspaceScreen(
 private fun WorkspaceBodyContent(
   isTwoColumnGrid: Boolean,
   editorState: com.example.ui.viewmodel.ParcelEditorState,
+  assignedRoles: List<UserRole>,
+  roleProfiles: Map<String, com.example.data.model.RoleSpecificProfile>,
+  activePartnerCatalogState: UiState<List<com.example.data.model.PartnerCatalogItem>>,
+  userPartnerCatalogState: UiState<List<com.example.data.model.PartnerCatalogItem>>,
+  userOrdersState: UiState<List<com.example.data.model.MarketplaceOrder>>,
+  openRoleOrders: List<com.example.data.model.MarketplaceOrder>,
+  accountMessages: List<com.example.data.model.PlatformMessage>,
   userParcelsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.AgriculturalParcel>>,
   marketListingsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.MarketListing>>,
   transportRequestsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.TransportRequest>>,
   serviceBookingsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.ServiceBooking>>,
+  offlineRegions: List<com.example.data.offline.OfflineMapRegionEntity>,
+  pendingOfflineWrites: Int,
   currentUser: FirebaseUser,
   viewModel: FellahViewModel,
+  aiViewModel: FellahAiViewModel,
+  matinViewModel: FellahMatinViewModel,
+  aiPlatformSnapshot: FellahPlatformDataSnapshot,
   onSignOut: () -> Unit,
   onExportPdf: () -> Unit,
   onBrowseLabDoc: () -> Unit,
@@ -611,6 +787,13 @@ private fun WorkspaceBodyContent(
               onOpenCadastralEditor = { viewModel.setShowCadastralEditDialog(true) },
               onOpenNdviHistory = { viewModel.setShowNdviHistory(true) },
               modifier = Modifier.weight(0.58f),
+              preferGoogleMapsEngine = editorState.preferGoogleMapsEngine,
+              isEffectiveOffline = editorState.isEffectiveOffline,
+              downloadedRegionsCount = offlineRegions.size,
+              onToggleMapEngine = viewModel::setPreferGoogleMapsEngine,
+              onGoogleMapLatLngTap = viewModel::onGoogleMapLatLngTapped,
+              onGoogleMapVertexDrag = viewModel::onGoogleMapVertexDragged,
+              onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
             )
 
             Column(
@@ -653,6 +836,13 @@ private fun WorkspaceBodyContent(
             onRequestLiveGps = onRequestLiveGps,
             onOpenCadastralEditor = { viewModel.setShowCadastralEditDialog(true) },
             onOpenNdviHistory = { viewModel.setShowNdviHistory(true) },
+            preferGoogleMapsEngine = editorState.preferGoogleMapsEngine,
+            isEffectiveOffline = editorState.isEffectiveOffline,
+            downloadedRegionsCount = offlineRegions.size,
+            onToggleMapEngine = viewModel::setPreferGoogleMapsEngine,
+            onGoogleMapLatLngTap = viewModel::onGoogleMapLatLngTapped,
+            onGoogleMapVertexDrag = viewModel::onGoogleMapVertexDragged,
+            onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
           )
 
           SoilCharacteristicsCard(
@@ -699,8 +889,16 @@ private fun WorkspaceBodyContent(
           onOpenPublishModal = { viewModel.setShowPublishMarketDialog(true) },
           onMarkSold = viewModel::markMarketListingAsSold,
           onBackToDelineation = {
-            viewModel.navigateToSection(WorkspaceSection.PARCEL_DELINEATION)
+            val backTarget =
+              if (editorState.activeRole == UserRole.FARMER) WorkspaceSection.PARCEL_DELINEATION
+              else WorkspaceSection.ROLE_DASHBOARD
+            viewModel.navigateToSection(backTarget)
           },
+          partnerCatalogState = activePartnerCatalogState,
+          activeRole = editorState.activeRole,
+          language = editorState.language,
+          requesterDisplayName = currentUser.displayName ?: editorState.operatorDisplayName,
+          onSubmitMarketOrder = viewModel::submitMarketplaceOrder,
         )
       }
 
@@ -713,7 +911,10 @@ private fun WorkspaceBodyContent(
           onAdvanceStatus = viewModel::advanceTransportStatus,
           onCancelRequest = viewModel::cancelTransportRequest,
           onBackToDelineation = {
-            viewModel.navigateToSection(WorkspaceSection.PARCEL_DELINEATION)
+            val backTarget =
+              if (editorState.activeRole == UserRole.FARMER) WorkspaceSection.PARCEL_DELINEATION
+              else WorkspaceSection.ROLE_DASHBOARD
+            viewModel.navigateToSection(backTarget)
           },
         )
       }
@@ -726,7 +927,21 @@ private fun WorkspaceBodyContent(
           onSubmitBooking = viewModel::submitServiceBooking,
           onCancelBooking = viewModel::cancelServiceBooking,
           onBackToDelineation = {
-            viewModel.navigateToSection(WorkspaceSection.PARCEL_DELINEATION)
+            val backTarget =
+              if (editorState.activeRole == UserRole.FARMER) WorkspaceSection.PARCEL_DELINEATION
+              else WorkspaceSection.ROLE_DASHBOARD
+            viewModel.navigateToSection(backTarget)
+          },
+          marketListingsState = marketListingsState,
+          agriWeatherReport = editorState.agriWeatherReport,
+          isLoadingAgriWeather = editorState.isLoadingAgriWeather,
+          agriWeatherError = editorState.agriWeatherError,
+          onRefreshAgriWeather = viewModel::refreshAgriWeather,
+          onNavigateToTransportSection = {
+            viewModel.navigateToSection(WorkspaceSection.TRANSPORT)
+          },
+          onNavigateToMarketSection = {
+            viewModel.navigateToSection(WorkspaceSection.PUBLIC_MARKET)
           },
         )
       }
@@ -749,8 +964,128 @@ private fun WorkspaceBodyContent(
           onExportCurrentParcelPdf = onExportPdf,
           onSignOut = onSignOut,
           onBackToDelineation = {
-            viewModel.navigateToSection(WorkspaceSection.PARCEL_DELINEATION)
+            val backTarget =
+              if (editorState.activeRole == UserRole.FARMER) WorkspaceSection.PARCEL_DELINEATION
+              else WorkspaceSection.ROLE_DASHBOARD
+            viewModel.navigateToSection(backTarget)
           },
+          isEffectiveOffline = editorState.isEffectiveOffline,
+          isManualOfflineMode = editorState.isManualOfflineMode,
+          downloadedRegionsCount = offlineRegions.size,
+          downloadedRegionsMb = offlineRegions.sumOf { it.sizeMb },
+          pendingWritesCount = pendingOfflineWrites,
+          onToggleManualOffline = viewModel::toggleManualOfflineMode,
+          onOpenOfflineMapsManager = { viewModel.setShowOfflineRegionsDialog(true) },
+          onSyncPendingWrites = viewModel::syncPendingOfflineQueueNow,
+          onClearOfflineCache = viewModel::clearAllOfflineRegions,
+          assignedRoles = assignedRoles,
+          activeRole = editorState.activeRole,
+          roleProfiles = roleProfiles,
+          onSwitchActiveRole = viewModel::switchActiveRole,
+          onAddRoles = { codes -> viewModel.addRolesToCurrentAccount(codes, makeFirstActive = true) },
+          onRemoveRole = viewModel::removeRoleFromCurrentAccount,
+          onSaveRoleProfile = viewModel::saveRoleProfileDetails,
+        )
+      }
+
+      WorkspaceSection.ROLE_DASHBOARD -> {
+        RoleDashboardScreen(
+          activeRole = editorState.activeRole,
+          assignedRoles = assignedRoles,
+          language = editorState.language,
+          operatorDisplayName = currentUser.displayName ?: editorState.operatorDisplayName,
+          roleProfile = roleProfiles[editorState.activeRole.code],
+          parcels = (userParcelsState as? UiState.Success)?.data ?: emptyList(),
+          marketListings = (marketListingsState as? UiState.Success)?.data ?: emptyList(),
+          partnerCatalog = (activePartnerCatalogState as? UiState.Success)?.data ?: emptyList(),
+          myCatalogItems = (userPartnerCatalogState as? UiState.Success)?.data ?: emptyList(),
+          myOrders = (userOrdersState as? UiState.Success)?.data ?: emptyList(),
+          openRoleOrders = openRoleOrders,
+          transportRequests = (transportRequestsState as? UiState.Success)?.data ?: emptyList(),
+          serviceBookings = (serviceBookingsState as? UiState.Success)?.data ?: emptyList(),
+          messages = accountMessages,
+          currentUserId = currentUser.uid,
+          onNavigateToSection = viewModel::navigateToSection,
+          onSwitchRole = viewModel::switchActiveRole,
+          onOpenPublishHarvestDialog = { viewModel.setShowPublishMarketDialog(true) },
+          matinViewModel = matinViewModel,
+        )
+      }
+
+      WorkspaceSection.PARTNER_CATALOG -> {
+        PartnerCatalogScreen(
+          activeRole = editorState.activeRole,
+          language = editorState.language,
+          providerDisplayName = currentUser.displayName ?: editorState.operatorDisplayName,
+          defaultWilaya = editorState.defaultWilaya,
+          myCatalogState = userPartnerCatalogState,
+          onPublishItem = viewModel::publishCatalogOffer,
+          onToggleStatus = viewModel::toggleCatalogOfferStatus,
+          onDeleteItem = viewModel::deleteCatalogOffer,
+          onBackToDashboard = { viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD) },
+        )
+      }
+
+      WorkspaceSection.ORDERS_AND_REQUESTS -> {
+        OrdersAndQuotesScreen(
+          activeRole = editorState.activeRole,
+          language = editorState.language,
+          currentUserId = currentUser.uid,
+          requesterDisplayName = currentUser.displayName ?: editorState.operatorDisplayName,
+          defaultWilaya = editorState.defaultWilaya,
+          myOrdersState = userOrdersState,
+          openRoleOrders = openRoleOrders,
+          onCreateOrder = viewModel::submitMarketplaceOrder,
+          onSubmitQuote = viewModel::submitQuotationOnOrder,
+          onUpdateOrderStatus = viewModel::updateMarketplaceOrderState,
+          onBackToDashboard = { viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD) },
+        )
+      }
+
+      WorkspaceSection.MESSAGES_INBOX -> {
+        SharedMessagesScreen(
+          language = editorState.language,
+          currentUserId = currentUser.uid,
+          senderDisplayName = currentUser.displayName ?: editorState.operatorDisplayName,
+          messages = accountMessages,
+          onSendMessage = { recId, recName, subj, body ->
+            viewModel.sendDirectPlatformMessage(
+              senderName = currentUser.displayName ?: editorState.operatorDisplayName,
+              recipientId = recId,
+              recipientName = recName,
+              subject = subj,
+              body = body,
+            )
+          },
+          onMarkRead = viewModel::markPlatformMessageRead,
+          onBackToDashboard = { viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD) },
+        )
+      }
+
+      WorkspaceSection.FELLAH_AI -> {
+        FellahAiAssistantPanel(
+          aiViewModel = aiViewModel,
+          language = editorState.language,
+          activeRole = editorState.activeRole,
+          platformSnapshot = aiPlatformSnapshot,
+          isOverlaySheet = false,
+          onCloseOrBack = { viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD) },
+        )
+      }
+
+      WorkspaceSection.FELLAH_MATIN -> {
+        FellahMatinFullScreen(
+          matinViewModel = matinViewModel,
+          language = editorState.language,
+          activeRole = editorState.activeRole,
+          isAuthenticated = true,
+          verifiedMarketListings =
+            (marketListingsState as? UiState.Success)?.data ?: emptyList(),
+          verifiedWeatherReport = editorState.agriWeatherReport,
+          isLoadingWeather = editorState.isLoadingAgriWeather,
+          weatherError = editorState.agriWeatherError,
+          onRefreshWeather = viewModel::refreshAgriWeather,
+          onBack = { viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD) },
         )
       }
     }
@@ -762,16 +1097,24 @@ private fun WorkspaceBodyContent(
 @Composable
 private fun OperatorSidebarContent(
   activeSection: WorkspaceSection,
+  activeRole: UserRole,
+  assignedRoles: List<UserRole>,
+  language: AppLanguage,
   userDisplayName: String,
   userEmail: String,
   onSelectSection: (WorkspaceSection) -> Unit,
+  onSwitchRole: (UserRole) -> Unit,
   onSignOut: () -> Unit,
 ) {
+  var showSidebarRoleMenu by remember { mutableStateOf(false) }
+  val sidebarSections = RoleNavigationConfig.sidebarSectionsForRole(activeRole)
+
   Column(
     modifier =
       Modifier.fillMaxSize()
         .windowInsetsPadding(WindowInsets.statusBars)
         .windowInsetsPadding(WindowInsets.navigationBars)
+        .verticalScroll(rememberScrollState())
         .padding(16.dp),
     verticalArrangement = Arrangement.SpaceBetween,
   ) {
@@ -807,104 +1150,95 @@ private fun OperatorSidebarContent(
             color = MaterialTheme.colorScheme.primary,
           )
           Text(
-            text = "Espace Opérateur • فضاء الفلاح",
+            text = activeRole.localizedTitle(language),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
       }
 
-      // Active Role Card
-      Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.fillMaxWidth(),
-      ) {
-        Row(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
+      // Active Role Switcher Card
+      Box {
+        Surface(
+          shape = RoundedCornerShape(12.dp),
+          color = MaterialTheme.colorScheme.surfaceContainerHighest,
+          modifier =
+            Modifier.fillMaxWidth()
+              .clip(RoundedCornerShape(12.dp))
+              .clickable { showSidebarRoleMenu = true }
+              .testTag("sidebar_role_switcher_card"),
         ) {
           Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
           ) {
-            Icon(
-              imageVector = Icons.Filled.AccountTree,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.size(18.dp),
-            )
-            Text(
-              text = "Rôle actif:",
-              style = MaterialTheme.typography.labelMedium,
-              color = MaterialTheme.colorScheme.onSurface,
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.SwapHoriz,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+              )
+              Text(
+                text = RoleStrings.activeRoleLabel(language),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+            }
+            Surface(
+              shape = RoundedCornerShape(6.dp),
+              color = MaterialTheme.colorScheme.primary,
+            ) {
+              Text(
+                text = activeRole.localizedTitle(language),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+              )
+            }
+          }
+        }
+
+        DropdownMenu(
+          expanded = showSidebarRoleMenu,
+          onDismissRequest = { showSidebarRoleMenu = false },
+        ) {
+          assignedRoles.forEach { r ->
+            DropdownMenuItem(
+              text = { Text(r.localizedTitle(language)) },
+              leadingIcon = { Icon(RoleStrings.iconForRole(r), contentDescription = null) },
+              onClick = {
+                showSidebarRoleMenu = false
+                if (r != activeRole) onSwitchRole(r)
+              },
             )
           }
-          Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = MaterialTheme.colorScheme.primary,
-          ) {
-            Text(
-              text = "Agriculteur",
-              style = MaterialTheme.typography.labelSmall,
-              color = MaterialTheme.colorScheme.onPrimary,
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            )
-          }
+          DropdownMenuItem(
+            text = { Text(RoleStrings.addAnotherRoleLabel(language)) },
+            onClick = {
+              showSidebarRoleMenu = false
+              onSelectSection(WorkspaceSection.SETTINGS)
+            },
+          )
         }
       }
 
-      // Navigation Links
+      // Role-Adapted Navigation Links
       Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SidebarNavItem(
-          icon = Icons.Filled.Dashboard,
-          titleAr = WorkspaceSection.PARCEL_DELINEATION.titleAr,
-          subtitleFr = WorkspaceSection.PARCEL_DELINEATION.titleFr,
-          selected = activeSection == WorkspaceSection.PARCEL_DELINEATION,
-          onClick = { onSelectSection(WorkspaceSection.PARCEL_DELINEATION) },
-          testTag = "nav_delineation",
-        )
-        SidebarNavItem(
-          icon = Icons.Filled.Inventory2,
-          titleAr = WorkspaceSection.MY_PARCELS.titleAr,
-          subtitleFr = WorkspaceSection.MY_PARCELS.titleFr,
-          selected = activeSection == WorkspaceSection.MY_PARCELS,
-          onClick = { onSelectSection(WorkspaceSection.MY_PARCELS) },
-          testTag = "nav_my_parcels",
-        )
-        SidebarNavItem(
-          icon = Icons.Filled.Storefront,
-          titleAr = WorkspaceSection.PUBLIC_MARKET.titleAr,
-          subtitleFr = WorkspaceSection.PUBLIC_MARKET.titleFr,
-          selected = activeSection == WorkspaceSection.PUBLIC_MARKET,
-          onClick = { onSelectSection(WorkspaceSection.PUBLIC_MARKET) },
-          testTag = "nav_public_market",
-        )
-        SidebarNavItem(
-          icon = Icons.Filled.LocalShipping,
-          titleAr = WorkspaceSection.TRANSPORT.titleAr,
-          subtitleFr = WorkspaceSection.TRANSPORT.titleFr,
-          selected = activeSection == WorkspaceSection.TRANSPORT,
-          onClick = { onSelectSection(WorkspaceSection.TRANSPORT) },
-          testTag = "nav_transport",
-        )
-        SidebarNavItem(
-          icon = Icons.Filled.Handyman,
-          titleAr = WorkspaceSection.SERVICES.titleAr,
-          subtitleFr = WorkspaceSection.SERVICES.titleFr,
-          selected = activeSection == WorkspaceSection.SERVICES,
-          onClick = { onSelectSection(WorkspaceSection.SERVICES) },
-          testTag = "nav_services",
-        )
-        SidebarNavItem(
-          icon = Icons.Filled.Settings,
-          titleAr = WorkspaceSection.SETTINGS.titleAr,
-          subtitleFr = WorkspaceSection.SETTINGS.titleFr,
-          selected = activeSection == WorkspaceSection.SETTINGS,
-          onClick = { onSelectSection(WorkspaceSection.SETTINGS) },
-          testTag = "nav_settings",
-        )
+        sidebarSections.forEach { sec ->
+          SidebarNavItem(
+            icon = filledIconForSection(sec),
+            titleAr = sec.localizedTitle(language),
+            subtitleFr = sec.titleFr,
+            selected = activeSection == sec,
+            onClick = { onSelectSection(sec) },
+            testTag = "nav_${sec.name.lowercase()}",
+          )
+        }
       }
     }
 
@@ -1038,14 +1372,23 @@ private fun TopOperatorBar(
   isCompact: Boolean,
   searchQuery: String,
   language: AppLanguage,
+  activeRole: UserRole,
+  assignedRoles: List<UserRole>,
   userDisplayName: String,
+  isEffectiveOffline: Boolean,
+  pendingOfflineWrites: Int,
+  onOpenOfflineManager: () -> Unit,
   onOpenDrawer: () -> Unit,
   onSearchChanged: (String) -> Unit,
   onLanguageSelected: (AppLanguage) -> Unit,
+  onSwitchRole: (UserRole) -> Unit,
+  onManageRolesInSettings: () -> Unit,
+  onOpenFellahAi: () -> Unit,
   onNewHarvest: () -> Unit,
   onSignOut: () -> Unit,
 ) {
   var showProfileMenu by remember { mutableStateOf(false) }
+  var showRoleSwitcherMenu by remember { mutableStateOf(false) }
 
   Surface(
     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
@@ -1075,7 +1418,7 @@ private fun TopOperatorBar(
           }
           Surface(
             modifier =
-              Modifier.size(38.dp)
+              Modifier.size(36.dp)
                 .border(
                   width = 1.dp,
                   color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -1091,13 +1434,6 @@ private fun TopOperatorBar(
               modifier = Modifier.fillMaxSize().padding(2.dp),
             )
           }
-          Text(
-            text = "Fellah Numérique",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
         } else {
           Surface(
             modifier =
@@ -1137,15 +1473,189 @@ private fun TopOperatorBar(
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
               ),
-            modifier = Modifier.width(340.dp).testTag("top_search_input"),
+            modifier = Modifier.width(280.dp).testTag("top_search_input"),
           )
+        }
+
+        // Prominent Header Role Switcher Pill
+        Box {
+          Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier =
+              Modifier.clip(RoundedCornerShape(50))
+                .clickable { showRoleSwitcherMenu = true }
+                .testTag("top_role_switcher_button"),
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+              Icon(
+                imageVector = RoleStrings.iconForRole(activeRole),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+              )
+              Text(
+                text = activeRole.localizedTitle(language),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+              Icon(
+                imageVector = Icons.Filled.SwapHoriz,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+              )
+            }
+          }
+
+          DropdownMenu(
+            expanded = showRoleSwitcherMenu,
+            onDismissRequest = { showRoleSwitcherMenu = false },
+          ) {
+            DropdownMenuItem(
+              text = {
+                Text(
+                  text = RoleStrings.switchRoleMenuTitle(language),
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                )
+              },
+              onClick = {},
+              enabled = false,
+            )
+            assignedRoles.forEach { roleOption ->
+              DropdownMenuItem(
+                text = {
+                  Text(
+                    text = roleOption.localizedTitle(language),
+                    fontWeight = if (roleOption == activeRole) FontWeight.Bold else FontWeight.Normal,
+                  )
+                },
+                leadingIcon = {
+                  Icon(RoleStrings.iconForRole(roleOption), contentDescription = null)
+                },
+                onClick = {
+                  showRoleSwitcherMenu = false
+                  if (roleOption != activeRole) {
+                    onSwitchRole(roleOption)
+                  }
+                },
+                modifier = Modifier.testTag("switcher_option_${roleOption.code}"),
+              )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+              text = {
+                Text(
+                  text = RoleStrings.addAnotherRoleLabel(language),
+                  color = MaterialTheme.colorScheme.primary,
+                  fontWeight = FontWeight.SemiBold,
+                )
+              },
+              onClick = {
+                showRoleSwitcherMenu = false
+                onManageRolesInSettings()
+              },
+              modifier = Modifier.testTag("switcher_add_role_option"),
+            )
+          }
         }
       }
 
       Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
+        // Non-intrusive Fellah AI Modal Sheet Launcher (preserves current screen task)
+        Surface(
+          shape = RoundedCornerShape(50),
+          color = MaterialTheme.colorScheme.tertiaryContainer,
+          modifier =
+            Modifier.heightIn(min = 48.dp)
+              .clip(RoundedCornerShape(50))
+              .clickable(onClick = onOpenFellahAi)
+              .testTag("open_fellah_ai_sheet_button"),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Icon(
+              imageVector = Icons.Filled.AutoAwesome,
+              contentDescription =
+                RoleStrings.tr(
+                  language,
+                  ar = "مساعد فلاح الذكي Fellah AI",
+                  fr = "Assistant Fellah AI",
+                  en = "Fellah AI Assistant",
+                ),
+              tint = MaterialTheme.colorScheme.onTertiaryContainer,
+              modifier = Modifier.size(16.dp),
+            )
+            Text(
+              text = "Fellah AI",
+              style = MaterialTheme.typography.labelSmall,
+              fontWeight = FontWeight.ExtraBold,
+              color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+          }
+        }
+
+        // Offline / Cloud Sync Status Pill
+        Surface(
+          shape = RoundedCornerShape(50),
+          color =
+            if (isEffectiveOffline) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.primaryContainer,
+          modifier =
+            Modifier.clip(RoundedCornerShape(50))
+              .clickable(onClick = onOpenOfflineManager)
+              .testTag("top_bar_offline_status_pill"),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Icon(
+              imageVector =
+                if (isEffectiveOffline) Icons.Filled.CloudOff else Icons.Filled.CloudDone,
+              contentDescription =
+                if (isEffectiveOffline) stringResource(R.string.offline_mode_active_chip)
+                else stringResource(R.string.online_mode_active_chip),
+              tint =
+                if (isEffectiveOffline) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onPrimaryContainer,
+              modifier = Modifier.size(15.dp),
+            )
+            if (!isCompact || isEffectiveOffline || pendingOfflineWrites > 0) {
+              Text(
+                text =
+                  when {
+                    isEffectiveOffline && pendingOfflineWrites > 0 ->
+                      "أوفلاين ($pendingOfflineWrites)"
+                    isEffectiveOffline -> "أوفلاين"
+                    pendingOfflineWrites > 0 -> "مزامنة ($pendingOfflineWrites)"
+                    else -> "متصل"
+                  },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color =
+                  if (isEffectiveOffline) MaterialTheme.colorScheme.onSecondaryContainer
+                  else MaterialTheme.colorScheme.onPrimaryContainer,
+              )
+            }
+          }
+        }
+
         // Language Switcher FR / AR / EN
         Surface(
           shape = RoundedCornerShape(8.dp),
@@ -1177,26 +1687,28 @@ private fun TopOperatorBar(
           }
         }
 
-        if (!isCompact) {
-          Button(
-            onClick = onNewHarvest,
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.height(44.dp).testTag("top_new_harvest_button"),
-          ) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Nouvelle Récolte", style = MaterialTheme.typography.labelLarge)
-          }
-        } else {
-          IconButton(
-            onClick = onNewHarvest,
-            modifier = Modifier.size(48.dp).testTag("top_new_harvest_button"),
-          ) {
-            Icon(
-              imageVector = Icons.Filled.Add,
-              contentDescription = "قطعة جديدة",
-              tint = MaterialTheme.colorScheme.primary,
-            )
+        if (activeRole == UserRole.FARMER) {
+          if (!isCompact) {
+            Button(
+              onClick = onNewHarvest,
+              shape = RoundedCornerShape(10.dp),
+              modifier = Modifier.height(44.dp).testTag("top_new_harvest_button"),
+            ) {
+              Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(4.dp))
+              Text("Nouvelle Récolte", style = MaterialTheme.typography.labelLarge)
+            }
+          } else {
+            IconButton(
+              onClick = onNewHarvest,
+              modifier = Modifier.size(48.dp).testTag("top_new_harvest_button"),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "قطعة جديدة",
+                tint = MaterialTheme.colorScheme.primary,
+              )
+            }
           }
         }
 
@@ -1242,15 +1754,24 @@ fun FellahBottomNavigationBar(
   language: AppLanguage,
   onSelectSection: (WorkspaceSection) -> Unit,
   modifier: Modifier = Modifier,
+  activeRole: UserRole? = null,
 ) {
+  val targetSections =
+    if (activeRole != null) {
+      RoleNavigationConfig.bottomBarSectionsForRole(activeRole)
+    } else {
+      listOf(
+        WorkspaceSection.PARCEL_DELINEATION,
+        WorkspaceSection.PUBLIC_MARKET,
+        WorkspaceSection.TRANSPORT,
+        WorkspaceSection.SERVICES,
+        WorkspaceSection.SETTINGS,
+      )
+    }
   val items =
-    listOf(
-      Triple(WorkspaceSection.PARCEL_DELINEATION, Icons.Filled.Map, Icons.Outlined.Map),
-      Triple(WorkspaceSection.PUBLIC_MARKET, Icons.Filled.Storefront, Icons.Outlined.Storefront),
-      Triple(WorkspaceSection.TRANSPORT, Icons.Filled.LocalShipping, Icons.Outlined.LocalShipping),
-      Triple(WorkspaceSection.SERVICES, Icons.Filled.Handyman, Icons.Outlined.Handyman),
-      Triple(WorkspaceSection.SETTINGS, Icons.Filled.Settings, Icons.Outlined.Settings),
-    )
+    targetSections.map { sec ->
+      Triple(sec, filledIconForSection(sec), outlinedIconForSection(sec))
+    }
 
   Surface(
     tonalElevation = 3.dp,
@@ -1299,6 +1820,38 @@ fun FellahBottomNavigationBar(
     }
   }
 }
+
+private fun filledIconForSection(section: WorkspaceSection): ImageVector =
+  when (section) {
+    WorkspaceSection.ROLE_DASHBOARD -> Icons.Filled.Dashboard
+    WorkspaceSection.PARCEL_DELINEATION -> Icons.Filled.Map
+    WorkspaceSection.MY_PARCELS -> Icons.Filled.Inventory2
+    WorkspaceSection.PUBLIC_MARKET -> Icons.Filled.Storefront
+    WorkspaceSection.PARTNER_CATALOG -> Icons.Filled.Inventory2
+    WorkspaceSection.ORDERS_AND_REQUESTS -> Icons.Filled.Assignment
+    WorkspaceSection.TRANSPORT -> Icons.Filled.LocalShipping
+    WorkspaceSection.SERVICES -> Icons.Filled.Handyman
+    WorkspaceSection.MESSAGES_INBOX -> Icons.Filled.Mail
+    WorkspaceSection.SETTINGS -> Icons.Filled.Settings
+    WorkspaceSection.FELLAH_AI -> Icons.Filled.AutoAwesome
+    WorkspaceSection.FELLAH_MATIN -> Icons.Filled.Newspaper
+  }
+
+private fun outlinedIconForSection(section: WorkspaceSection): ImageVector =
+  when (section) {
+    WorkspaceSection.ROLE_DASHBOARD -> Icons.Outlined.Dashboard
+    WorkspaceSection.PARCEL_DELINEATION -> Icons.Outlined.Map
+    WorkspaceSection.MY_PARCELS -> Icons.Outlined.Inventory2
+    WorkspaceSection.PUBLIC_MARKET -> Icons.Outlined.Storefront
+    WorkspaceSection.PARTNER_CATALOG -> Icons.Outlined.Inventory2
+    WorkspaceSection.ORDERS_AND_REQUESTS -> Icons.Outlined.Assignment
+    WorkspaceSection.TRANSPORT -> Icons.Outlined.LocalShipping
+    WorkspaceSection.SERVICES -> Icons.Outlined.Handyman
+    WorkspaceSection.MESSAGES_INBOX -> Icons.Outlined.Mail
+    WorkspaceSection.SETTINGS -> Icons.Outlined.Settings
+    WorkspaceSection.FELLAH_AI -> Icons.Outlined.AutoAwesome
+    WorkspaceSection.FELLAH_MATIN -> Icons.Outlined.Newspaper
+  }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

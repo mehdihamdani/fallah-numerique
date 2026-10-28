@@ -15,6 +15,7 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.snapshots
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 class FellahRepository(
   private val db: FirebaseFirestore,
@@ -66,6 +68,46 @@ class FellahRepository(
       }
   }
 
+  /**
+   * Observes how many of the farmer's parcels currently have unsynced local offline edits
+   * (`snapshot.metadata.hasPendingWrites()`) queued in Firestore's local PersistentCache.
+   */
+  fun observePendingOfflineWritesCount(userId: String): Flow<Int> {
+    return db
+      .collection(PARCELS_COLLECTION)
+      .whereEqualTo("userId", userId)
+      .snapshots(MetadataChanges.INCLUDE)
+      .map { snapshot -> snapshot.documents.count { it.metadata.hasPendingWrites() } }
+      .catch { emit(0) }
+  }
+
+  suspend fun setCloudNetworkEnabled(enabled: Boolean): Result<Unit> {
+    return try {
+      if (enabled) {
+        db.enableNetwork().await()
+      } else {
+        db.disableNetwork().await()
+      }
+      Result.success(Unit)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+
+  suspend fun syncPendingOfflineWrites(): Result<Unit> {
+    return try {
+      db.enableNetwork().await()
+      withTimeoutOrNull(4500L) { db.waitForPendingWrites().await() }
+      Result.success(Unit)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+
   suspend fun getParcelById(parcelId: String): Result<AgriculturalParcel> {
     val docRef = db.collection(PARCELS_COLLECTION).document(parcelId)
     return try {
@@ -84,7 +126,10 @@ class FellahRepository(
     }
   }
 
-  suspend fun saveParcel(parcel: AgriculturalParcel): Result<String> {
+  suspend fun saveParcel(
+    parcel: AgriculturalParcel,
+    allowOfflineQueue: Boolean = false,
+  ): Result<String> {
     val uid = requireUserId()
     val isCreate = parcel.id.isBlank()
     val targetId = if (isCreate) UUID.randomUUID().toString() else parcel.id
@@ -99,12 +144,18 @@ class FellahRepository(
             createdAt = null,
             updatedAt = null,
           )
-        docRef.set(toCreate).await()
+        if (allowOfflineQueue) {
+          val task = docRef.set(toCreate)
+          withTimeoutOrNull(1200L) { task.await() }
+          task.exception?.let { throw it }
+        } else {
+          docRef.set(toCreate).await()
+        }
       } else {
         val existingCreatedAt =
           parcel.createdAt
-            ?: docRef.get().await().getTimestamp("createdAt")
-            ?: throw IllegalStateException("Existing parcel createdAt timestamp missing")
+            ?: withTimeoutOrNull(1200L) { docRef.get().await().getTimestamp("createdAt") }
+            ?: Timestamp.now()
         val toUpdate =
           parcel.copy(
             id = targetId,
@@ -112,7 +163,13 @@ class FellahRepository(
             createdAt = existingCreatedAt,
             updatedAt = null,
           )
-        docRef.set(toUpdate).await()
+        if (allowOfflineQueue) {
+          val task = docRef.set(toUpdate)
+          withTimeoutOrNull(1200L) { task.await() }
+          task.exception?.let { throw it }
+        } else {
+          docRef.set(toUpdate).await()
+        }
       }
       Result.success(targetId)
     } catch (e: CancellationException) {
@@ -262,7 +319,10 @@ class FellahRepository(
       }
   }
 
-  suspend fun createTransportRequest(request: TransportRequest): Result<String> {
+  suspend fun createTransportRequest(
+    request: TransportRequest,
+    allowOfflineQueue: Boolean = false,
+  ): Result<String> {
     val uid = requireUserId()
     val requestId = UUID.randomUUID().toString()
     val docRef = db.collection(TRANSPORT_COLLECTION).document(requestId)
@@ -275,7 +335,13 @@ class FellahRepository(
           createdAt = null,
           updatedAt = null,
         )
-      docRef.set(payload).await()
+      if (allowOfflineQueue) {
+        val task = docRef.set(payload)
+        withTimeoutOrNull(1200L) { task.await() }
+        task.exception?.let { throw it }
+      } else {
+        docRef.set(payload).await()
+      }
       Result.success(requestId)
     } catch (e: CancellationException) {
       throw e
@@ -342,7 +408,10 @@ class FellahRepository(
       }
   }
 
-  suspend fun createServiceBooking(booking: ServiceBooking): Result<String> {
+  suspend fun createServiceBooking(
+    booking: ServiceBooking,
+    allowOfflineQueue: Boolean = false,
+  ): Result<String> {
     val uid = requireUserId()
     val bookingId = UUID.randomUUID().toString()
     val docRef = db.collection(SERVICES_COLLECTION).document(bookingId)
@@ -355,7 +424,13 @@ class FellahRepository(
           createdAt = null,
           updatedAt = null,
         )
-      docRef.set(payload).await()
+      if (allowOfflineQueue) {
+        val task = docRef.set(payload)
+        withTimeoutOrNull(1200L) { task.await() }
+        task.exception?.let { throw it }
+      } else {
+        docRef.set(payload).await()
+      }
       Result.success(bookingId)
     } catch (e: CancellationException) {
       throw e

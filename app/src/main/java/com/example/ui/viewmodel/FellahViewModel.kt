@@ -14,20 +14,45 @@ import com.example.data.model.CropVarietyType
 import com.example.data.model.MapInteractionTool
 import com.example.data.model.MapLayerMode
 import com.example.data.model.MarketListing
+import com.example.data.model.MarketplaceOrder
 import com.example.data.model.NormalizedPoint
+import com.example.data.model.PartnerCatalogItem
+import com.example.data.model.PlatformMessage
+import com.example.data.model.RoleNavigationConfig
+import com.example.data.model.RoleSpecificProfile
 import com.example.data.model.ServiceBooking
 import com.example.data.model.SoilTextureType
 import com.example.data.model.TransportRequest
+import com.example.data.model.UserAccountProfile
+import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
+import com.example.data.network.AgriWeatherReport
+import com.example.data.network.OpenMeteoAgriWeatherClient
+import com.example.data.offline.FellahOfflineDatabase
+import com.example.data.offline.OfflineMapCacheRepository
+import com.example.data.offline.OfflineMapRegionEntity
 import com.example.data.repository.FellahRepository
+import com.example.data.repository.RoleAccountRepository
+import com.example.util.GeoCoordinateMapper
+import com.example.util.GeoCoordinateMapper.GeoLatLng
+import com.example.util.NetworkConnectivityObserver
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.PersistentCacheSettings
 import java.util.Locale
 import kotlin.math.abs
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -58,15 +83,60 @@ data class ParcelEditorState(
   val hasLoadedInitialCloudParcel: Boolean = false,
   val operatorDisplayName: String = "Coopérative El Baraka",
   val defaultWilaya: String = "07 - بسكرة (Biskra)",
-)
+  val isNetworkConnected: Boolean = true,
+  val isManualOfflineMode: Boolean = false,
+  val isDownloadingOfflineRegion: Boolean = false,
+  val isSyncingOfflineQueue: Boolean = false,
+  val showOfflineRegionsDialog: Boolean = false,
+  val preferGoogleMapsEngine: Boolean = true,
+  val agriWeatherReport: AgriWeatherReport? = null,
+  val isLoadingAgriWeather: Boolean = false,
+  val agriWeatherError: String? = null,
+  val activeRole: UserRole = UserRole.FARMER,
+  val isOnboardingSaving: Boolean = false,
+  val onboardingErrorMessage: String? = null,
+) {
+  val isEffectiveOffline: Boolean
+    get() = !isNetworkConnected || isManualOfflineMode
+}
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class FellahViewModel(
   private val repository: FellahRepository,
   private val currentUserId: String,
+  private val offlineMapCacheRepository: OfflineMapCacheRepository? = null,
+  connectivityFlow: Flow<Boolean> = flowOf(true),
+  private val roleRepository: RoleAccountRepository? = null,
 ) : ViewModel() {
 
   private val _editorState = MutableStateFlow(ParcelEditorState())
   val editorState: StateFlow<ParcelEditorState> = _editorState.asStateFlow()
+  private var hasAttemptedLegacyFarmerAutoMigration = false
+  private var hasAppliedInitialLanding = false
+
+  val offlineRegionsState: StateFlow<List<OfflineMapRegionEntity>> =
+    (offlineMapCacheRepository?.downloadedRegions ?: flowOf(emptyList())).stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+      initialValue = emptyList(),
+    )
+
+  val pendingOfflineWritesCount: StateFlow<Int> =
+    repository
+      .observePendingOfflineWritesCount(currentUserId)
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = 0,
+      )
+
+  init {
+    viewModelScope.launch {
+      connectivityFlow.collect { connected ->
+        _editorState.update { state -> state.copy(isNetworkConnected = connected) }
+      }
+    }
+  }
 
   val userParcelsState: StateFlow<UiState<List<AgriculturalParcel>>> =
     repository
@@ -140,8 +210,161 @@ class FellahViewModel(
         initialValue = UiState.Loading,
       )
 
+  val userAccountState: StateFlow<UiState<UserAccountProfile?>> =
+    (roleRepository?.observeUserAccount(currentUserId) ?: flowOf(null))
+      .map<UserAccountProfile?, UiState<UserAccountProfile?>> { profile ->
+        if (profile != null) {
+          val resolvedRole = profile.resolvedActiveRole() ?: UserRole.FARMER
+          val savedLang =
+            AppLanguage.entries.firstOrNull { it.code == profile.preferredLanguage }
+          _editorState.update { state ->
+            val allowedSections = RoleNavigationConfig.sidebarSectionsForRole(resolvedRole)
+            val nextSection =
+              if (!hasAppliedInitialLanding && profile.onboardingCompleted) {
+                hasAppliedInitialLanding = true
+                if (resolvedRole == UserRole.FARMER) state.activeSection
+                else WorkspaceSection.ROLE_DASHBOARD
+              } else if (state.activeSection !in allowedSections) {
+                WorkspaceSection.ROLE_DASHBOARD
+              } else {
+                state.activeSection
+              }
+            state.copy(
+              activeRole = resolvedRole,
+              language = savedLang ?: state.language,
+              operatorDisplayName =
+                profile.displayName.takeIf { it.isNotBlank() } ?: state.operatorDisplayName,
+              activeSection = nextSection,
+            )
+          }
+        }
+        UiState.Success(profile)
+      }
+      .catch { error ->
+        Log.w(TAG, "Error observing user multi-role account", error)
+        emit(UiState.Error(error.localizedMessage ?: "تعذر تحميل ملف الأنشطة المهنية"))
+      }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Loading,
+      )
+
+  val roleProfilesState: StateFlow<Map<String, RoleSpecificProfile>> =
+    (roleRepository?.observeRoleProfiles(currentUserId) ?: flowOf(emptyMap()))
+      .catch { emit(emptyMap()) }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyMap(),
+      )
+
+  val activePartnerCatalogState: StateFlow<UiState<List<PartnerCatalogItem>>> =
+    (roleRepository?.observeActivePartnerCatalog() ?: flowOf(emptyList()))
+      .map<List<PartnerCatalogItem>, UiState<List<PartnerCatalogItem>>> { UiState.Success(it) }
+      .catch { error ->
+        emit(UiState.Error(error.localizedMessage ?: "تعذر تحميل كتالوج الشركاء"))
+      }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Loading,
+      )
+
+  val userPartnerCatalogState: StateFlow<UiState<List<PartnerCatalogItem>>> =
+    (roleRepository?.observeUserPartnerCatalog(currentUserId) ?: flowOf(emptyList()))
+      .map<List<PartnerCatalogItem>, UiState<List<PartnerCatalogItem>>> { UiState.Success(it) }
+      .catch { error ->
+        emit(UiState.Error(error.localizedMessage ?: "تعذر تحميل عروضي المهنية"))
+      }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Loading,
+      )
+
+  val userOrdersState: StateFlow<UiState<List<MarketplaceOrder>>> =
+    (roleRepository?.observeUserOrders(currentUserId) ?: flowOf(emptyList()))
+      .map<List<MarketplaceOrder>, UiState<List<MarketplaceOrder>>> { UiState.Success(it) }
+      .catch { error ->
+        emit(UiState.Error(error.localizedMessage ?: "تعذر تحميل الطلبات وعروض الأسعار"))
+      }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Loading,
+      )
+
+  val openRoleOrdersState: StateFlow<List<MarketplaceOrder>> =
+    combine(
+        userAccountState,
+        _editorState.map { it.activeRole }.distinctUntilChanged(),
+      ) { accState, activeRole ->
+        val acc = (accState as? UiState.Success)?.data
+        if (acc != null && acc.onboardingCompleted && activeRole.code in acc.assignedRoles) {
+          activeRole.code
+        } else {
+          null
+        }
+      }
+      .distinctUntilChanged()
+      .flatMapLatest { validRoleCode ->
+        if (validRoleCode != null && roleRepository != null) {
+          roleRepository.observeOpenOrdersForRole(validRoleCode).catch { emit(emptyList()) }
+        } else {
+          flowOf(emptyList())
+        }
+      }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyList(),
+      )
+
+  val accountMessagesState: StateFlow<List<PlatformMessage>> =
+    (roleRepository?.observeAccountMessages(currentUserId) ?: flowOf(emptyList()))
+      .catch { emit(emptyList()) }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyList(),
+      )
+
+  init {
+    // Backward-compatible migration: if an existing farmer already has saved parcels in /parcels
+    // from before multi-role onboarding existed, auto-initialize their /users/{uid} profile as farmer!
+    if (roleRepository != null) {
+      viewModelScope.launch {
+        combine(userAccountState, userParcelsState) { acc, parcels -> acc to parcels }.collect {
+          (accState, parcelsState) ->
+          val acc = (accState as? UiState.Success)
+          val parcels = (parcelsState as? UiState.Success)?.data
+          if (
+            !hasAttemptedLegacyFarmerAutoMigration &&
+              acc != null &&
+              acc.data == null &&
+              !parcels.isNullOrEmpty()
+          ) {
+            hasAttemptedLegacyFarmerAutoMigration = true
+            roleRepository.saveOnboardingProgress(
+              displayName = _editorState.value.operatorDisplayName,
+              email = "",
+              preferredLanguage = _editorState.value.language,
+              selectedRoleCodes = listOf(UserRole.FARMER.code),
+              chosenDefaultRole = UserRole.FARMER.code,
+              step = 5,
+              completed = true,
+            )
+          }
+        }
+      }
+    }
+  }
+
   fun setLanguage(language: AppLanguage) {
     _editorState.update { it.copy(language = language) }
+    val repo = roleRepository ?: return
+    viewModelScope.launch { repo.updatePreferredLanguage(language) }
   }
 
   fun navigateToSection(section: WorkspaceSection) {
@@ -211,6 +434,225 @@ class FellahViewModel(
         )
       } else {
         state
+      }
+    }
+  }
+
+  /**
+   * Handles taps directly on live satellite map [GeoLatLng] coordinates for drawing WGS84 parcel
+   * boundaries or placing the irrigation borehole (Forage) in keyless demo mode.
+   */
+  fun onGoogleMapLatLngTapped(latLng: GeoLatLng) {
+    _editorState.update { state ->
+      val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
+      val mappedNorm = GeoCoordinateMapper.latLngToNormalized(latLng, center)
+      when (state.mapTool) {
+        MapInteractionTool.PLACE_FORAGE -> {
+          state.copy(
+            activeParcel = state.activeParcel.copy(wellPoint = mappedNorm.encode()),
+            mapTool = MapInteractionTool.VIEW,
+            feedbackMessage =
+              "تم تثبيت نقطة السقي على الخريطة الحية (${GeoCoordinateMapper.formatDecimalLabel(latLng.latitude, latLng.longitude)})",
+            isErrorFeedback = false,
+          )
+        }
+        MapInteractionTool.DRAW_POLYGON -> {
+          val currentPts = state.activeParcel.polygonPoints.map { NormalizedPoint.decode(it) }
+          val updatedPts =
+            if (currentPts.size >= 16) currentPts.drop(1) + mappedNorm else currentPts + mappedNorm
+          val latLngVertices =
+            updatedPts.map { GeoCoordinateMapper.normalizedToLatLng(it, center) }
+          val area = GeoCoordinateMapper.computeGeodesicAreaHectares(latLngVertices)
+          state.copy(
+            activeParcel =
+              state.activeParcel.copy(
+                polygonPoints = updatedPts.map { it.encode() },
+                areaHectares = area,
+              )
+          )
+        }
+        MapInteractionTool.VIEW -> state
+      }
+    }
+  }
+
+  /**
+   * Handles dragging a polygon vertex marker on the live satellite map in real time.
+   */
+  fun onGoogleMapVertexDragged(index: Int, newLatLng: GeoLatLng) {
+    _editorState.update { state ->
+      val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
+      val pts = state.activeParcel.polygonPoints.map { NormalizedPoint.decode(it) }.toMutableList()
+      if (index in pts.indices) {
+        pts[index] = GeoCoordinateMapper.latLngToNormalized(newLatLng, center)
+        val latLngVertices = pts.map { GeoCoordinateMapper.normalizedToLatLng(it, center) }
+        val area = GeoCoordinateMapper.computeGeodesicAreaHectares(latLngVertices)
+        state.copy(
+          activeParcel =
+            state.activeParcel.copy(
+              polygonPoints = pts.map { it.encode() },
+              areaHectares = area,
+            )
+        )
+      } else {
+        state
+      }
+    }
+  }
+
+  fun setPreferGoogleMapsEngine(preferGoogleMaps: Boolean) {
+    _editorState.update { it.copy(preferGoogleMapsEngine = preferGoogleMaps) }
+  }
+
+  fun setShowOfflineRegionsDialog(show: Boolean) {
+    _editorState.update { it.copy(showOfflineRegionsDialog = show) }
+  }
+
+  fun toggleManualOfflineMode(enabled: Boolean) {
+    _editorState.update { it.copy(isManualOfflineMode = enabled) }
+    viewModelScope.launch {
+      repository.setCloudNetworkEnabled(!enabled)
+      val msg =
+        if (enabled) {
+          "تم تفعيل وضع العمل الميداني دون اتصال (Offline) — تُحفظ كافة التعديلات محلياً وتُزامن لاحقاً"
+        } else {
+          "تمت استعادة الاتصال السحابي ومزامنة السجل الفلاحي"
+        }
+      _editorState.update { it.copy(feedbackMessage = msg, isErrorFeedback = false) }
+    }
+  }
+
+  fun syncPendingOfflineQueueNow() {
+    _editorState.update { it.copy(isSyncingOfflineQueue = true, isManualOfflineMode = false) }
+    viewModelScope.launch {
+      repository
+        .syncPendingOfflineWrites()
+        .onSuccess {
+          _editorState.update {
+            it.copy(
+              isSyncingOfflineQueue = false,
+              feedbackMessage = "تمت مزامنة كافة البيانات الميدانية المحفوظة محلياً مع السحابة بنجاح",
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              isSyncingOfflineQueue = false,
+              feedbackMessage = err.localizedMessage ?: "تعذرت المزامنة الفورية، ستستمر المحاولة تلقائياً",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun downloadCurrentParcelOfflineRegion() {
+    val cacheRepo = offlineMapCacheRepository ?: return
+    val state = _editorState.value
+    val parcel = state.activeParcel
+    val center = GeoCoordinateMapper.parseCenterCoordinates(parcel.coordinatesLabel)
+    val regionId =
+      "parcel_${parcel.ilotNumber.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase(Locale.US)}"
+    val regionEntity =
+      OfflineMapRegionEntity(
+        id = regionId,
+        regionName = "${parcel.name} (${parcel.commune})",
+        wilaya = parcel.wilaya,
+        parcelReference = parcel.ilotNumber,
+        centerLat = center.latitude,
+        centerLng = center.longitude,
+        zoomLevel = 16.6f,
+        radiusKm = 5.0,
+        mapLayerCode = state.mapLayerMode.name,
+        polygonSnapshotEncoded = parcel.polygonPoints.joinToString("|"),
+        sizeMb = 14.8,
+      )
+    _editorState.update { it.copy(isDownloadingOfflineRegion = true) }
+    viewModelScope.launch {
+      delay(350L)
+      cacheRepo.saveDownloadedRegion(regionEntity)
+      _editorState.update {
+        it.copy(
+          isDownloadingOfflineRegion = false,
+          feedbackMessage =
+            "تم تنزيل وحفظ خريطة المنطقة (${parcel.name}) للعمل أوفلاين بدون إنترنت (14.8 MB)",
+          isErrorFeedback = false,
+        )
+      }
+    }
+  }
+
+  fun downloadPresetOfflineRegion(preset: GeoCoordinateMapper.OfflineRegionPreset) {
+    val cacheRepo = offlineMapCacheRepository ?: return
+    val entity =
+      OfflineMapRegionEntity(
+        id = preset.id,
+        regionName = preset.regionName,
+        wilaya = preset.wilaya,
+        parcelReference = "نطاق فلاحي إقليمي (${preset.radiusKm} كم)",
+        centerLat = preset.centerLat,
+        centerLng = preset.centerLng,
+        zoomLevel = 15.2f,
+        radiusKm = preset.radiusKm,
+        mapLayerCode = _editorState.value.mapLayerMode.name,
+        polygonSnapshotEncoded = _editorState.value.activeParcel.polygonPoints.joinToString("|"),
+        sizeMb = preset.estimatedSizeMb,
+      )
+    _editorState.update { it.copy(isDownloadingOfflineRegion = true) }
+    viewModelScope.launch {
+      delay(350L)
+      cacheRepo.saveDownloadedRegion(entity)
+      _editorState.update {
+        it.copy(
+          isDownloadingOfflineRegion = false,
+          feedbackMessage = "تم تنزيل خريطة ${preset.regionName} للاستخدام أوفلاين (${preset.estimatedSizeMb} MB)",
+          isErrorFeedback = false,
+        )
+      }
+    }
+  }
+
+  fun openOfflineCachedRegion(region: OfflineMapRegionEntity) {
+    val restoredPolygon =
+      region.polygonSnapshotEncoded
+        .split("|")
+        .filter { it.contains(",") }
+        .ifEmpty { _editorState.value.activeParcel.polygonPoints }
+    val coordLabel = GeoCoordinateMapper.formatDecimalLabel(region.centerLat, region.centerLng)
+    _editorState.update { state ->
+      state.copy(
+        activeParcel =
+          state.activeParcel.copy(
+            wilaya = region.wilaya,
+            coordinatesLabel = coordLabel,
+            polygonPoints = restoredPolygon,
+          ),
+        showOfflineRegionsDialog = false,
+        activeSection = WorkspaceSection.PARCEL_DELINEATION,
+        feedbackMessage = "تم فتح خريطة المنطقة المحفوظة أوفلاين: ${region.regionName}",
+        isErrorFeedback = false,
+      )
+    }
+  }
+
+  fun deleteOfflineRegion(regionId: String) {
+    val cacheRepo = offlineMapCacheRepository ?: return
+    viewModelScope.launch {
+      cacheRepo.deleteRegion(regionId)
+      _editorState.update {
+        it.copy(feedbackMessage = "تم حذف المنطقة من ذاكرة الخرائط دون اتصال", isErrorFeedback = false)
+      }
+    }
+  }
+
+  fun clearAllOfflineRegions() {
+    val cacheRepo = offlineMapCacheRepository ?: return
+    viewModelScope.launch {
+      cacheRepo.clearCache()
+      _editorState.update {
+        it.copy(feedbackMessage = "تم تفريغ ذاكرة الخرائط المحفوظة دون اتصال", isErrorFeedback = false)
       }
     }
   }
@@ -441,19 +883,26 @@ class FellahViewModel(
   }
 
   fun saveCurrentParcel() {
-    val current = _editorState.value.activeParcel
+    val stateSnapshot = _editorState.value
+    val current = stateSnapshot.activeParcel
+    val isOffline = stateSnapshot.isEffectiveOffline
     _editorState.update { it.copy(isSaving = true, feedbackMessage = null) }
     viewModelScope.launch {
-      val result = repository.saveParcel(current)
+      val result = repository.saveParcel(current, allowOfflineQueue = isOffline)
       result
         .onSuccess { savedId ->
-          val refreshed = repository.getParcelById(savedId).getOrNull()
+          val refreshed =
+            if (!isOffline) repository.getParcelById(savedId).getOrNull() else null
           _editorState.update { state ->
             state.copy(
               activeParcel = refreshed ?: state.activeParcel.copy(id = savedId, userId = currentUserId),
               isSaving = false,
               feedbackMessage =
-                "تم حفظ وتثبيت القطعة الفلاحية (${"%.2f".format(current.areaHectares)} Ha) في السجل السحابي بنجاح",
+                if (isOffline) {
+                  "تم حفظ القطعة الفلاحية محلياً في وضع أوفلاين (${"%.2f".format(current.areaHectares)} Ha) — ستتم المزامنة تلقائياً عند توفر الشبكة"
+                } else {
+                  "تم حفظ وتثبيت القطعة الفلاحية (${"%.2f".format(current.areaHectares)} Ha) في السجل السحابي بنجاح"
+                },
               isErrorFeedback = false,
             )
           }
@@ -602,13 +1051,19 @@ class FellahViewModel(
         cargoTons = cargoTons.coerceIn(0.1, 5000.0),
         scheduledDate = scheduledDate.ifBlank { "2026-11-02" }.take(38),
       )
+    val isOffline = _editorState.value.isEffectiveOffline
     viewModelScope.launch {
       repository
-        .createTransportRequest(request)
+        .createTransportRequest(request, allowOfflineQueue = isOffline)
         .onSuccess {
           _editorState.update {
             it.copy(
-              feedbackMessage = "تم تسجيل طلب النقل الفلاحي بنجاح وجارٍ تنسيق الشاحنة",
+              feedbackMessage =
+                if (isOffline) {
+                  "تم حفظ طلب النقل محلياً (أوفلاين) وسيُرسل تلقائياً فور توفر الشبكة"
+                } else {
+                  "تم تسجيل طلب النقل الفلاحي بنجاح وجارٍ تنسيق الشاحنة"
+                },
               isErrorFeedback = false,
             )
           }
@@ -688,13 +1143,19 @@ class FellahViewModel(
         preferredDate = preferredDate.ifBlank { "2026-11-05" }.take(38),
         notes = notes.take(290),
       )
+    val isOffline = _editorState.value.isEffectiveOffline
     viewModelScope.launch {
       repository
-        .createServiceBooking(booking)
+        .createServiceBooking(booking, allowOfflineQueue = isOffline)
         .onSuccess {
           _editorState.update {
             it.copy(
-              feedbackMessage = "تم حجز الخدمة الفلاحية وإرسال الطلب للمصلحة المختصة",
+              feedbackMessage =
+                if (isOffline) {
+                  "تم حفظ حجز الخدمة محلياً (أوفلاين) وسيُرسل تلقائياً فور توفر الشبكة"
+                } else {
+                  "تم حجز الخدمة الفلاحية وإرسال الطلب للمصلحة المختصة"
+                },
               isErrorFeedback = false,
             )
           }
@@ -744,6 +1205,411 @@ class FellahViewModel(
     }
   }
 
+  fun refreshAgriWeather() {
+    val coords = _editorState.value.activeParcel.coordinatesLabel
+    _editorState.update { it.copy(isLoadingAgriWeather = true, agriWeatherError = null) }
+    viewModelScope.launch {
+      OpenMeteoAgriWeatherClient.fetchAgriWeatherForCoordinates(coords)
+        .onSuccess { report ->
+          _editorState.update {
+            it.copy(
+              agriWeatherReport = report,
+              isLoadingAgriWeather = false,
+              agriWeatherError = null,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              isLoadingAgriWeather = false,
+              agriWeatherError = err.localizedMessage ?: "تعذر جلب بيانات الطقس الزراعي المباشرة",
+            )
+          }
+        }
+    }
+  }
+
+  fun saveOnboardingDraft(
+    displayName: String,
+    email: String,
+    selectedRoles: List<String>,
+    defaultRole: String,
+    step: Int,
+  ) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo.saveOnboardingProgress(
+        displayName = displayName,
+        email = email,
+        preferredLanguage = _editorState.value.language,
+        selectedRoleCodes = selectedRoles,
+        chosenDefaultRole = defaultRole,
+        step = step,
+        completed = false,
+      )
+    }
+  }
+
+  fun completeMultiRoleOnboarding(
+    displayName: String,
+    email: String,
+    selectedRoles: List<String>,
+    defaultRole: String,
+    profilesToSave: List<RoleSpecificProfile>,
+    intendedSectionAfterLogin: WorkspaceSection? = null,
+  ) {
+    val repo = roleRepository ?: return
+    _editorState.update { it.copy(isOnboardingSaving = true, onboardingErrorMessage = null) }
+    viewModelScope.launch {
+      val result =
+        repo.saveOnboardingProgress(
+          displayName = displayName,
+          email = email,
+          preferredLanguage = _editorState.value.language,
+          selectedRoleCodes = selectedRoles,
+          chosenDefaultRole = defaultRole,
+          step = 5,
+          completed = true,
+        )
+      result
+        .onSuccess { savedAccount ->
+          profilesToSave.forEach { profile -> repo.saveRoleSpecificProfile(profile) }
+          val resolved = savedAccount.resolvedActiveRole() ?: UserRole.FARMER
+          val allowed = RoleNavigationConfig.sidebarSectionsForRole(resolved)
+          val landingSection =
+            intendedSectionAfterLogin?.takeIf { it in allowed }
+              ?: WorkspaceSection.ROLE_DASHBOARD
+          hasAppliedInitialLanding = true
+          _editorState.update {
+            it.copy(
+              isOnboardingSaving = false,
+              onboardingErrorMessage = null,
+              activeRole = resolved,
+              activeSection = landingSection,
+              operatorDisplayName = savedAccount.displayName,
+              feedbackMessage = "تم تخصيص حسابك المهني وتفعيل واجهة (${resolved.localizedTitle(it.language)}) بنجاح",
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              isOnboardingSaving = false,
+              onboardingErrorMessage = err.localizedMessage ?: "تعذر حفظ إعدادات الأنشطة المهنية",
+            )
+          }
+        }
+    }
+  }
+
+  fun switchActiveRole(targetRole: UserRole) {
+    val repo = roleRepository
+    val allowedSections = RoleNavigationConfig.sidebarSectionsForRole(targetRole)
+    _editorState.update { state ->
+      val nextSec =
+        if (state.activeSection in allowedSections && state.activeSection != WorkspaceSection.PARCEL_DELINEATION) {
+          WorkspaceSection.ROLE_DASHBOARD
+        } else if (state.activeSection !in allowedSections) {
+          WorkspaceSection.ROLE_DASHBOARD
+        } else {
+          WorkspaceSection.ROLE_DASHBOARD
+        }
+      state.copy(
+        activeRole = targetRole,
+        activeSection = nextSec,
+        feedbackMessage =
+          when (state.language) {
+            AppLanguage.AR -> "تم التبديل الفوري إلى فضاء: ${targetRole.titleAr}"
+            AppLanguage.FR -> "Basculement vers l'espace : ${targetRole.titleFr}"
+            AppLanguage.EN -> "Switched active role to: ${targetRole.titleEn}"
+          },
+        isErrorFeedback = false,
+      )
+    }
+    if (repo != null) {
+      viewModelScope.launch {
+        repo.updateDefaultRole(targetRole.code).onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر تثبيت النشاط الافتراضي",
+              isErrorFeedback = true,
+            )
+          }
+        }
+      }
+    }
+  }
+
+  fun addRolesToCurrentAccount(newRoleCodes: List<String>, makeFirstActive: Boolean = true) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo
+        .addRolesToAccount(newRoleCodes, makeFirstActive = makeFirstActive)
+        .onSuccess { updated ->
+          val nextRole = updated.resolvedActiveRole() ?: _editorState.value.activeRole
+          _editorState.update { state ->
+            state.copy(
+              activeRole = nextRole,
+              feedbackMessage =
+                when (state.language) {
+                  AppLanguage.AR -> "تمت إضافة النشاط المهني الجديد وتحديث صلاحياتك بنجاح"
+                  AppLanguage.FR -> "Nouvelle activité professionnelle ajoutée avec succès"
+                  AppLanguage.EN -> "New professional activity added to your account"
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر إضافة النشاط المهني",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun removeRoleFromCurrentAccount(roleCode: String) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo
+        .removeRoleFromAccount(roleCode, blockIfActiveObligations = true)
+        .onSuccess { updated ->
+          val nextRole = updated.resolvedActiveRole() ?: UserRole.FARMER
+          _editorState.update { state ->
+            state.copy(
+              activeRole = nextRole,
+              feedbackMessage =
+                when (state.language) {
+                  AppLanguage.AR -> "تمت إزالة النشاط من الواجهة مع الحفاظ الكامل على سجلاتك السابقة"
+                  AppLanguage.FR -> "Activité retirée avec conservation de votre historique"
+                  AppLanguage.EN -> "Role removed safely while preserving historical records"
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          val raw = err.message.orEmpty()
+          val friendlyMsg =
+            if (raw.startsWith("ACTIVE_OBLIGATIONS:")) {
+              val count = raw.split(":").getOrNull(1) ?: "1"
+              when (_editorState.value.language) {
+                AppLanguage.AR ->
+                  "تنبيه: لديك ($count) عروض نشطة أو طلبات قيد التنفيذ تحت هذا النشاط. يرجى إيقافها أو إتمامها أولاً قبل إزالة النشاط."
+                AppLanguage.FR ->
+                  "Attention : vous avez ($count) offres actives ou commandes en cours sous ce rôle. Mettez-les en pause ou terminez-les d'abord."
+                AppLanguage.EN ->
+                  "Warning: You have ($count) active offers or open orders under this role. Pause or complete them before removing the role."
+              }
+            } else {
+              err.localizedMessage ?: "لا يمكن إزالة النشاط الوحيد المتبقي في الحساب"
+            }
+          _editorState.update {
+            it.copy(feedbackMessage = friendlyMsg, isErrorFeedback = true)
+          }
+        }
+    }
+  }
+
+  fun saveRoleProfileDetails(profile: RoleSpecificProfile) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo
+        .saveRoleSpecificProfile(profile)
+        .onSuccess {
+          _editorState.update { state ->
+            state.copy(
+              feedbackMessage =
+                when (state.language) {
+                  AppLanguage.AR -> "تم حفظ وتحديث البطاقة المهنية للنشاط بنجاح"
+                  AppLanguage.FR -> "Profil professionnel enregistré avec succès"
+                  AppLanguage.EN -> "Professional role profile saved"
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر حفظ البطاقة المهنية",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun publishCatalogOffer(item: PartnerCatalogItem) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo
+        .publishPartnerCatalogItem(item)
+        .onSuccess {
+          _editorState.update { state ->
+            state.copy(
+              feedbackMessage =
+                when (state.language) {
+                  AppLanguage.AR -> "تم نشر عرضك المهني في المنصة بنجاح"
+                  AppLanguage.FR -> "Votre offre a été publiée dans le catalogue"
+                  AppLanguage.EN -> "Offer published to marketplace catalog"
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر نشر العرض المهني",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun toggleCatalogOfferStatus(item: PartnerCatalogItem) {
+    val repo = roleRepository ?: return
+    val next = if (item.status == "active") "paused" else "active"
+    viewModelScope.launch {
+      repo.updatePartnerCatalogStatus(item.id, next).onSuccess {
+        _editorState.update { state ->
+          state.copy(
+            feedbackMessage =
+              if (next == "paused") "تم إيقاف العرض مؤقتًا" else "تم إعادة تفعيل العرض",
+            isErrorFeedback = false,
+          )
+        }
+      }
+    }
+  }
+
+  fun deleteCatalogOffer(itemId: String) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo.deletePartnerCatalogItem(itemId).onSuccess {
+        _editorState.update { it.copy(feedbackMessage = "تم حذف العرض المهني", isErrorFeedback = false) }
+      }
+    }
+  }
+
+  fun submitMarketplaceOrder(order: MarketplaceOrder) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo
+        .createMarketplaceOrder(order)
+        .onSuccess {
+          _editorState.update { state ->
+            state.copy(
+              feedbackMessage =
+                when (state.language) {
+                  AppLanguage.AR -> "تم إرسال الطلب بنجاح وجارٍ إشعار المتعاملين المعنيين"
+                  AppLanguage.FR -> "Demande envoyée avec succès aux opérateurs concernés"
+                  AppLanguage.EN -> "Order/request submitted successfully"
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر إرسال الطلب",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun submitQuotationOnOrder(
+    order: MarketplaceOrder,
+    quotedPriceDzd: Double,
+    quoteNotes: String,
+  ) {
+    val repo = roleRepository ?: return
+    val isBroadcastClaim = order.providerId.isBlank() && order.status == "pending"
+    viewModelScope.launch {
+      repo
+        .submitOrderQuotation(
+          orderId = order.id,
+          isBroadcastClaim = isBroadcastClaim,
+          quotedPriceDzd = quotedPriceDzd,
+          quoteNotes = quoteNotes,
+        )
+        .onSuccess {
+          _editorState.update {
+            it.copy(feedbackMessage = "تم تقديم عرض السعر للمتعامل بنجاح", isErrorFeedback = false)
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر إرسال عرض السعر",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun updateMarketplaceOrderState(orderId: String, nextStatus: String) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo.updateOrderStatus(orderId, nextStatus).onSuccess {
+        _editorState.update {
+          it.copy(feedbackMessage = "تم تحديث حالة الطلب بنجاح", isErrorFeedback = false)
+        }
+      }
+    }
+  }
+
+  fun sendDirectPlatformMessage(
+    senderName: String,
+    recipientId: String,
+    recipientName: String,
+    subject: String,
+    body: String,
+  ) {
+    val repo = roleRepository ?: return
+    val activeRoleCode = _editorState.value.activeRole.code
+    viewModelScope.launch {
+      repo
+        .sendMessage(
+          senderName = senderName,
+          senderRole = activeRoleCode,
+          recipientId = recipientId,
+          recipientName = recipientName,
+          subject = subject,
+          body = body,
+        )
+        .onSuccess {
+          _editorState.update {
+            it.copy(feedbackMessage = "تم إرسال الرسالة المباشرة بنجاح", isErrorFeedback = false)
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر إرسال الرسالة",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun markPlatformMessageRead(messageId: String) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch { repo.markMessageAsRead(messageId) }
+  }
+
   companion object {
     private const val TAG = "FellahVM"
     private const val STOP_TIMEOUT_MILLIS = 5000L
@@ -754,9 +1620,25 @@ class FellahViewModel(
           checkNotNull(this[APPLICATION_KEY]) { "APPLICATION_KEY missing from CreationExtras" }
         val databaseId = app.getString(R.string.firestore_database_id)
         val db = FirebaseFirestore.getInstance(databaseId)
+        // Configure durable 100 MB on-device PersistentCacheSettings before first Firestore use
+        runCatching {
+          db.firestoreSettings =
+            FirebaseFirestoreSettings.Builder(db.firestoreSettings)
+              .setLocalCacheSettings(
+                PersistentCacheSettings.newBuilder()
+                  .setSizeBytes(100L * 1024L * 1024L)
+                  .build()
+              )
+              .build()
+        }
+        val offlineDb = FellahOfflineDatabase.getInstance(app)
+        val offlineCacheRepo = OfflineMapCacheRepository(offlineDb.offlineMapRegionDao())
         FellahViewModel(
           repository = FellahRepository(db),
           currentUserId = currentUserId,
+          offlineMapCacheRepository = offlineCacheRepo,
+          connectivityFlow = NetworkConnectivityObserver.observeConnectivity(app),
+          roleRepository = RoleAccountRepository(db),
         )
       }
     }

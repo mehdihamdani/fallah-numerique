@@ -249,65 +249,231 @@ enum class TransportVehicleType(
   }
 }
 
+enum class AgriServiceDomain(
+  val code: String,
+  val titleAr: String,
+  val subtitleFr: String,
+) {
+  AGRICULTURAL_PRODUCTION(
+    code = "agricultural_production",
+    titleAr = "الإنتاج الزراعي",
+    subtitleFr = "Production Agricole",
+  ),
+  EQUIPMENT_AND_SUPPLIES(
+    code = "equipment_and_supplies",
+    titleAr = "التجهيزات والمستلزمات",
+    subtitleFr = "Équipements & Intrants",
+  ),
+  POST_HARVEST(
+    code = "post_harvest",
+    titleAr = "ما بعد الحصاد",
+    subtitleFr = "Post-Récolte & Stockage",
+  ),
+  TRADE_AND_TRANSPORT(
+    code = "trade_and_transport",
+    titleAr = "التجارة والنقل",
+    subtitleFr = "Commerce & Transport",
+  ),
+  CONSULTING_AND_DIGITAL(
+    code = "consulting_and_digital",
+    titleAr = "الاستشارات والخدمات الرقمية",
+    subtitleFr = "Conseil & Services Numériques",
+  ),
+}
+
 enum class AgriServiceCategory(
   val code: String,
+  val domain: AgriServiceDomain,
   val titleAr: String,
   val subtitleFr: String,
   val descriptionAr: String,
   val providerBadge: String,
+  val actionLabelAr: String = "طلب الخدمة",
 ) {
+  // 1. الإنتاج الزراعي
+  PLOWING_LEVELING(
+    code = "plowing_leveling",
+    domain = AgriServiceDomain.AGRICULTURAL_PRODUCTION,
+    titleAr = "حرث وتسوية الأرض",
+    subtitleFr = "Labour & Nivellement Laser",
+    descriptionAr = "حرث عميق وتفتيت التربة وتسوية الحقول بالليزر لتحسين توزيع مياه السقي وتجهيز المرقد الزراعي.",
+    providerBadge = "وحدة تهيئة الأراضي",
+  ),
+  TRACTOR_MACHINERY_RENTAL(
+    code = "tractor_machinery_rental",
+    domain = AgriServiceDomain.AGRICULTURAL_PRODUCTION,
+    titleAr = "كراء الجرارات والآلات",
+    subtitleFr = "Location Tracteurs & Engins",
+    descriptionAr = "حجز جرارات فلاحية رباعية الدفع، آلات البذر، المرشات المحورية، ومعدات الخدمة الميكانيكية بالساعة أو اليوم.",
+    providerBadge = "تعاونية العتاد الفلاحي",
+  ),
+  IRRIGATION_INSTALL_MAINT(
+    code = "irrigation_install_maint",
+    domain = AgriServiceDomain.AGRICULTURAL_PRODUCTION,
+    titleAr = "تركيب وصيانة الري",
+    subtitleFr = "Installation & Maintenance Irrigation",
+    descriptionAr = "تصميم وتركيب شبكات السقي بالتقطير والرش المحوري وصيانة المضخات الغاطسة والفلاتر.",
+    providerBadge = "مؤسسة الري الفلاحي",
+  ),
+  FARM_LABOR_SUPPLY(
+    code = "farm_labor_supply",
+    domain = AgriServiceDomain.AGRICULTURAL_PRODUCTION,
+    titleAr = "توفير العمالة",
+    subtitleFr = "Main-d'œuvre Agricole Qualifiée",
+    descriptionAr = "توفير فرق عمالة موسمية ومختصة في غرس الشتلات، تقليم الأشجار، تلقيح النخيل، وخدمة البيوت البلاستيكية.",
+    providerBadge = "فرق اليد العاملة المؤهلة",
+  ),
+  HARVESTING_PICKING(
+    code = "harvesting_picking",
+    domain = AgriServiceDomain.AGRICULTURAL_PRODUCTION,
+    titleAr = "الحصاد والجني",
+    subtitleFr = "Moisson & Cueillette",
+    descriptionAr = "آلات الحصاد والدرس للحبوب الكبرى، جني عراجين التمور (دقلة نور)، واقتلاع البطاطا والزيتون.",
+    providerBadge = "تعاونية الحصاد والجني",
+  ),
+
+  // 2. التجهيزات والمستلزمات
+  SEEDS_SEEDLINGS(
+    code = "seeds_seedlings",
+    domain = AgriServiceDomain.EQUIPMENT_AND_SUPPLIES,
+    titleAr = "البذور والشتلات",
+    subtitleFr = "Semences Certifiées & Plants",
+    descriptionAr = "توريد بذور معتمدة عالية المردودية، فسائل نخيل نسيجية، وشتلات أشجار مثمرة مقاومة للجفاف والملوحة.",
+    providerBadge = "المشاتل المعتمدة CCLS",
+    actionLabelAr = "طلب توريد",
+  ),
+  FERTILIZERS_SUPPLY(
+    code = "fertilizers_supply",
+    domain = AgriServiceDomain.EQUIPMENT_AND_SUPPLIES,
+    titleAr = "الأسمدة",
+    subtitleFr = "Engrais NPK & Amendements",
+    descriptionAr = "توفير الأسمدة العضوية والمعدنية (NPK، اليوريا، الفوسفات) والمخصبات الورقية الذوابة الملائمة لتربتك.",
+    providerBadge = "مركب التموين بالأسمدة",
+    actionLabelAr = "طلب توريد",
+  ),
+
+  // 3. ما بعد الحصاد
+  COLD_STORAGE_WAREHOUSES(
+    code = "cold_storage_warehouses",
+    domain = AgriServiceDomain.POST_HARVEST,
+    titleAr = "مخازن التبريد",
+    subtitleFr = "Chambres Froides & Conditionnement",
+    descriptionAr = "حجز غرف تبريد موجبة وسالبة لحفظ التمور والبطاطا والفواكه مع فرز وتوضيب المنتوج للتسويق والتصدير.",
+    providerBadge = "شبكة التبريد والتخزين FRIGO",
+    actionLabelAr = "حجز مساحة",
+  ),
+
+  // 4. التجارة والنقل
+  AGRICULTURAL_TRANSPORT_SERVICE(
+    code = "agricultural_transport_service",
+    domain = AgriServiceDomain.TRADE_AND_TRANSPORT,
+    titleAr = "النقل الزراعي",
+    subtitleFr = "Transport & Logistique Agricole",
+    descriptionAr = "شاحنات مبردة ومسطحة لنقل المحاصيل والمستلزمات من المستثمرة نحو أسواق الجملة والموانئ.",
+    providerBadge = "أسطول اللوجستيك الفلاحي",
+    actionLabelAr = "طلب نقل",
+  ),
+
+  // 5. الاستشارات والخدمات الرقمية
+  AGRONOMIST_CONSULTATION(
+    code = "agronomist_consultation",
+    domain = AgriServiceDomain.CONSULTING_AND_DIGITAL,
+    titleAr = "مهندس زراعي",
+    subtitleFr = "Ingénieur Agronome & Suivi",
+    descriptionAr = "حجز زيارة ميدانية أو استشارة تقنية مع مهندس فلاحي مختص لتشخيص الآفات وضبط برنامج التسميد والوقاية.",
+    providerBadge = "مكتب الخبرة الزراعية",
+    actionLabelAr = "حجز استشارة",
+  ),
+  MARKET_PRICES_SERVICE(
+    code = "market_prices_service",
+    domain = AgriServiceDomain.CONSULTING_AND_DIGITAL,
+    titleAr = "أسعار السوق",
+    subtitleFr = "Mercuriale & Prix du Marché",
+    descriptionAr = "متابعة مؤشرات أسعار الجملة اليومية للمنتجات الفلاحية وتفعيل تنبيهات الأسعار حسب ولايتك ومحصولك.",
+    providerBadge = "مرصد الأسواق الفلاحية",
+    actionLabelAr = "عرض وتفعيل",
+  ),
+  AGRI_WEATHER_SERVICE(
+    code = "agri_weather_service",
+    domain = AgriServiceDomain.CONSULTING_AND_DIGITAL,
+    titleAr = "الطقس الزراعي",
+    subtitleFr = "Météo Agricole & Alertes Gel/Vent",
+    descriptionAr = "نشرة الرصد الجوي الفلاحي الميداني، معدلات التبخر والنتح (ET0)، وتنبيهات الصقيع والرياح الرملية ومواعيد السقي.",
+    providerBadge = "الأرصاد الفلاحية الرقمية",
+    actionLabelAr = "عرض النشرة",
+  ),
   SOIL_LAB_INRAA(
     code = "soil_lab_inraa",
+    domain = AgriServiceDomain.CONSULTING_AND_DIGITAL,
     titleAr = "تحليل التربة والمياه المخبري",
     subtitleFr = "Laboratoire Pédologique INRAA",
-    descriptionAr = "أخذ عينات ميدانية وفحص pH، الملوحة EC، والمادة العضوية بشهادة رسمية.",
+    descriptionAr = "أخذ عينات ميدانية وفحص الحموضة pH، الملوحة EC، والمادة العضوية بشهادة مخبرية معتمدة.",
     providerBadge = "مخبر معتمد INRAA",
+    actionLabelAr = "حجز تحليل",
   ),
   DRONE_NDVI_SCAN(
     code = "drone_ndvi_scan",
+    domain = AgriServiceDomain.CONSULTING_AND_DIGITAL,
     titleAr = "مسح طيفي بطائرات الدرون NDVI",
     subtitleFr = "Imagerie Multispectrale Drone",
     descriptionAr = "تصوير جوي عالي الدقة لكشف الإجهاد المائي وآفات النخيل والأشجار المثمرة.",
     providerBadge = "وحدة الاستشعار الفلاحي",
-  ),
-  FORAGE_DRILLING(
-    code = "forage_drilling",
-    titleAr = "حفر وصيانة الآبار والسقي بالتقطير",
-    subtitleFr = "Forage & Irrigation Goutte-à-goutte",
-    descriptionAr = "دراسة جيوفيزيائية، تنظيف الآبار الارتوازية، وتركيب شبكات التقطير الذكية.",
-    providerBadge = "مؤسسة الري الفلاحي",
-  ),
-  HARVESTER_RENTAL(
-    code = "harvester_rental",
-    titleAr = "كراء العتاد والآلات الفلاحية",
-    subtitleFr = "Location Matériel & Récolte",
-    descriptionAr = "جرارات، آلات جني البطاطا، رافعات النخيل الهيدروليكية، ومعدات الحرث.",
-    providerBadge = "تعاونية العتاد الفلاحي",
-  ),
-  AGRONOMIC_ADVISORY(
-    code = "agronomic_advisory",
-    titleAr = "الإرشاد الزراعي والوقاية النباتية",
-    subtitleFr = "Conseil Agronomique & Phytosanitaire",
-    descriptionAr = "مرافقة مهندس فلاحي ميداني لضبط التسميد ومكافحة سوسة النخيل والأمراض.",
-    providerBadge = "الغرفة الفلاحية",
+    actionLabelAr = "حجز مسح",
   );
 
   companion object {
+    val primaryCatalogEntries: List<AgriServiceCategory> =
+      listOf(
+        PLOWING_LEVELING,
+        TRACTOR_MACHINERY_RENTAL,
+        IRRIGATION_INSTALL_MAINT,
+        FARM_LABOR_SUPPLY,
+        HARVESTING_PICKING,
+        SEEDS_SEEDLINGS,
+        FERTILIZERS_SUPPLY,
+        COLD_STORAGE_WAREHOUSES,
+        AGRICULTURAL_TRANSPORT_SERVICE,
+        AGRONOMIST_CONSULTATION,
+        MARKET_PRICES_SERVICE,
+        AGRI_WEATHER_SERVICE,
+        SOIL_LAB_INRAA,
+        DRONE_NDVI_SCAN,
+      )
+
+    fun byDomain(domain: AgriServiceDomain): List<AgriServiceCategory> =
+      primaryCatalogEntries.filter { it.domain == domain }
+
     fun fromCode(code: String): AgriServiceCategory =
-      entries.firstOrNull { it.code == code } ?: SOIL_LAB_INRAA
+      entries.firstOrNull { it.code == code }
+        ?: when (code) {
+          "forage_drilling" -> IRRIGATION_INSTALL_MAINT
+          "harvester_rental" -> TRACTOR_MACHINERY_RENTAL
+          "agronomic_advisory" -> AGRONOMIST_CONSULTATION
+          else -> PLOWING_LEVELING
+        }
   }
 }
 
 enum class WorkspaceSection(
   val titleAr: String,
   val titleFr: String,
+  val titleEn: String,
   val navLabelAr: String,
   val navLabelFr: String,
   val navLabelEn: String,
 ) {
+  ROLE_DASHBOARD(
+    titleAr = "لوحة القيادة المخصصة",
+    titleFr = "Tableau de Bord Personnalisé",
+    titleEn = "Personalized Dashboard",
+    navLabelAr = "الرئيسية",
+    navLabelFr = "Accueil",
+    navLabelEn = "Home",
+  ),
   PARCEL_DELINEATION(
     titleAr = "تعيين القطعة وسجل التربة",
     titleFr = "Délimitation & Fiche",
+    titleEn = "Parcel & Soil Registry",
     navLabelAr = "القطعة",
     navLabelFr = "Parcelle",
     navLabelEn = "Parcel",
@@ -315,13 +481,31 @@ enum class WorkspaceSection(
   PUBLIC_MARKET(
     titleAr = "السوق العام الفلاحي",
     titleFr = "Marché Public",
+    titleEn = "Public Marketplace",
     navLabelAr = "السوق",
     navLabelFr = "Marché",
     navLabelEn = "Market",
   ),
+  PARTNER_CATALOG(
+    titleAr = "عروضي ومنتجاتي المهنية",
+    titleFr = "Mon Catalogue & Capacités",
+    titleEn = "My Offers & Catalog",
+    navLabelAr = "عروضي",
+    navLabelFr = "Offres",
+    navLabelEn = "Catalog",
+  ),
+  ORDERS_AND_REQUESTS(
+    titleAr = "الطلبات وعروض الأسعار",
+    titleFr = "Commandes, Devis & Réservations",
+    titleEn = "Orders, Quotes & Bookings",
+    navLabelAr = "الطلبات",
+    navLabelFr = "Commandes",
+    navLabelEn = "Orders",
+  ),
   TRANSPORT(
     titleAr = "النقل واللوجستيك الفلاحي",
     titleFr = "Transport & Expéditions",
+    titleEn = "Agricultural Transport",
     navLabelAr = "النقل",
     navLabelFr = "Transport",
     navLabelEn = "Transport",
@@ -329,13 +513,23 @@ enum class WorkspaceSection(
   SERVICES(
     titleAr = "الخدمات الفلاحية والتقنية",
     titleFr = "Services Agricoles",
+    titleEn = "Agricultural Services",
     navLabelAr = "الخدمات",
     navLabelFr = "Services",
     navLabelEn = "Services",
   ),
+  MESSAGES_INBOX(
+    titleAr = "الرسائل والتنبيهات المشتركة",
+    titleFr = "Messagerie & Notifications",
+    titleEn = "Messages & Notifications",
+    navLabelAr = "الرسائل",
+    navLabelFr = "Messages",
+    navLabelEn = "Messages",
+  ),
   SETTINGS(
-    titleAr = "الإعدادات وحساب الفلاح",
-    titleFr = "Paramètres & Compte",
+    titleAr = "الإعدادات وإدارة الأنشطة",
+    titleFr = "Paramètres & Multi-Rôles",
+    titleEn = "Account & Role Settings",
     navLabelAr = "الإعدادات",
     navLabelFr = "Paramètres",
     navLabelEn = "Settings",
@@ -343,10 +537,34 @@ enum class WorkspaceSection(
   MY_PARCELS(
     titleAr = "سجل القطع والمحاصيل",
     titleFr = "Mes Récoltes & Parcelles",
+    titleEn = "My Saved Parcels",
     navLabelAr = "سجل القطع",
     navLabelFr = "Parcelles",
     navLabelEn = "Parcels",
+  ),
+  FELLAH_AI(
+    titleAr = "المساعد الذكي Fellah AI",
+    titleFr = "Assistant Fellah AI",
+    titleEn = "Fellah AI Assistant",
+    navLabelAr = "المساعد",
+    navLabelFr = "Fellah AI",
+    navLabelEn = "Fellah AI",
+  ),
+  FELLAH_MATIN(
+    titleAr = "أخبار الصباح",
+    titleFr = "Actualités agricoles du matin",
+    titleEn = "Morning Agricultural News",
+    navLabelAr = "أخبار الصباح",
+    navLabelFr = "Fellah Matin",
+    navLabelEn = "Fellah Matin",
   );
+
+  fun localizedTitle(language: AppLanguage): String =
+    when (language) {
+      AppLanguage.AR -> titleAr
+      AppLanguage.FR -> titleFr
+      AppLanguage.EN -> titleEn
+    }
 
   fun bottomLabel(language: AppLanguage): String =
     when (language) {

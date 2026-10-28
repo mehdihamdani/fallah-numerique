@@ -64,10 +64,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AgriculturalParcel
+import com.example.data.model.AppLanguage
 import com.example.data.model.CropVarietyType
 import com.example.data.model.MarketListing
+import com.example.data.model.MarketplaceOrder
+import com.example.data.model.PartnerCatalogItem
 import com.example.data.model.SoilTextureType
+import com.example.data.model.UserRole
 import com.example.ui.viewmodel.UiState
+import com.example.util.RoleStrings
 import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -332,10 +337,16 @@ fun PublicMarketScreen(
   onMarkSold: (String) -> Unit,
   onBackToDelineation: () -> Unit,
   modifier: Modifier = Modifier,
+  partnerCatalogState: UiState<List<PartnerCatalogItem>> = UiState.Success(emptyList()),
+  activeRole: UserRole = UserRole.FARMER,
+  language: AppLanguage = AppLanguage.AR,
+  requesterDisplayName: String = "Opérateur",
+  onSubmitMarketOrder: (MarketplaceOrder) -> Unit = {},
 ) {
   BackHandler(onBack = onBackToDelineation)
 
   var selectedCropFilter by remember { mutableStateOf<String?>(null) }
+  var marketSubTab by remember { mutableStateOf(0) } // 0 = Harvests, 1 = Partner Catalog
 
   Column(
     modifier = modifier.fillMaxWidth(),
@@ -348,25 +359,199 @@ fun PublicMarketScreen(
     ) {
       Column(modifier = Modifier.weight(1f)) {
         Text(
-          text = "السوق العام الفلاحي وعروض المحاصيل الموثقة",
+          text =
+            RoleStrings.tr(
+              language,
+              ar = "السوق العام الفلاحي وعروض الشركاء",
+              fr = "Marché Public Agricole & Offres Partenaires",
+              en = "Public Marketplace & Partner Offers",
+            ),
           style = MaterialTheme.typography.headlineMedium,
           color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-          text = "Marché Public B2B • محاصيل مرتبطة مباشرة بالسجل العقاري والفلاحي",
+          text =
+            RoleStrings.tr(
+              language,
+              ar = "محاصيل الفلاحين الموثقة + كتالوج الموردين والناقلين وغرف التبريد",
+              fr = "Récoltes certifiées + Catalogue intrants, transport et stockage frigorifique",
+              en = "Certified harvests + Supplier inputs, freight & cold-storage catalog",
+            ),
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
-      Button(
-        onClick = onOpenPublishModal,
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.height(48.dp).testTag("market_publish_button"),
-      ) {
-        Icon(Icons.Filled.Storefront, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(modifier = Modifier.width(6.dp))
-        Text("نشر محصول القطعة", style = MaterialTheme.typography.labelLarge)
+      if (activeRole == UserRole.FARMER) {
+        Button(
+          onClick = onOpenPublishModal,
+          shape = RoundedCornerShape(10.dp),
+          modifier = Modifier.height(48.dp).testTag("market_publish_button"),
+        ) {
+          Icon(Icons.Filled.Storefront, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("نشر محصول القطعة", style = MaterialTheme.typography.labelLarge)
+        }
       }
+    }
+
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      FilterChip(
+        selected = marketSubTab == 0,
+        onClick = { marketSubTab = 0 },
+        label = {
+          Text(RoleStrings.tr(language, "عروض المحاصيل الفلاحية", "Récoltes Agricoles", "Harvest Listings"))
+        },
+        modifier = Modifier.testTag("market_subtab_harvests"),
+      )
+      FilterChip(
+        selected = marketSubTab == 1,
+        onClick = { marketSubTab = 1 },
+        label = {
+          Text(
+            RoleStrings.tr(
+              language,
+              ar = "مستلزمات، نقل وتبريد الشركاء",
+              fr = "Intrants, Transport & Froid",
+              en = "Supplies, Freight & Storage",
+            )
+          )
+        },
+        modifier = Modifier.testTag("market_subtab_partners"),
+      )
+    }
+
+    if (marketSubTab == 1) {
+      val catalogItems =
+        ((partnerCatalogState as? UiState.Success)?.data ?: emptyList()).filter { item ->
+          searchQuery.isBlank() ||
+            item.title.contains(searchQuery, ignoreCase = true) ||
+            item.providerName.contains(searchQuery, ignoreCase = true) ||
+            item.wilaya.contains(searchQuery, ignoreCase = true)
+        }
+      if (catalogItems.isEmpty()) {
+        Card(
+          shape = RoundedCornerShape(16.dp),
+          colors =
+            CardDefaults.cardColors(
+              containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+            ),
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Column(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Text(
+              text =
+                RoleStrings.tr(
+                  language,
+                  ar = "لا توجد عروض شركاء منشورة مطابقة للبحث حالياً",
+                  fr = "Aucune offre partenaire active pour le moment",
+                  en = "No matching partner catalog offers right now",
+                ),
+              style = MaterialTheme.typography.titleMedium,
+            )
+          }
+        }
+      } else {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          catalogItems.forEach { pItem ->
+            val providerRoleEnum = UserRole.fromCode(pItem.providerRole)
+            Card(
+              shape = RoundedCornerShape(16.dp),
+              colors =
+                CardDefaults.cardColors(
+                  containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                ),
+              modifier =
+                Modifier.fillMaxWidth()
+                  .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                    RoundedCornerShape(16.dp),
+                  ),
+            ) {
+              Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                      text = "${pItem.title} • ${pItem.providerName}",
+                      style = MaterialTheme.typography.titleMedium,
+                      fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                      text = "${providerRoleEnum.localizedTitle(language)} — ${pItem.wilaya}",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                  }
+                  Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                  ) {
+                    Text(
+                      text = "${pItem.priceDzd.toInt()} ${pItem.unitLabel}",
+                      style = MaterialTheme.typography.labelLarge,
+                      color = MaterialTheme.colorScheme.onPrimaryContainer,
+                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                  }
+                }
+                if (pItem.description.isNotBlank()) {
+                  Text(pItem.description, style = MaterialTheme.typography.bodySmall)
+                }
+                if (pItem.userId != currentUserId) {
+                  OutlinedButton(
+                    onClick = {
+                      onSubmitMarketOrder(
+                        MarketplaceOrder(
+                          requesterName = requesterDisplayName,
+                          requesterRole = activeRole.code,
+                          providerId = pItem.userId,
+                          targetRole = pItem.providerRole,
+                          targetItemId = pItem.id,
+                          orderType =
+                            when (pItem.providerRole) {
+                              UserRole.TRANSPORTER.code -> "transport_quote"
+                              UserRole.STORAGE_PROVIDER.code -> "storage_reservation"
+                              UserRole.SUPPLIER.code -> "supply_order"
+                              else -> "service_quote"
+                            },
+                          itemTitle = pItem.title,
+                          wilaya = pItem.wilaya,
+                          quantity = 1.0,
+                          unitLabel = pItem.unitLabel,
+                          proposedPriceDzd = pItem.priceDzd,
+                          notes = "طلب مباشر من السوق العام",
+                        )
+                      )
+                    },
+                    modifier = Modifier.height(48.dp).testTag("order_partner_item_${pItem.id}"),
+                  ) {
+                    Text(
+                      RoleStrings.tr(
+                        language,
+                        ar = "طلب / حجز مباشر",
+                        fr = "Commander / Réserver",
+                        en = "Order / Reserve",
+                      )
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      return@Column
     }
 
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -537,6 +722,37 @@ fun PublicMarketScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("تأكيد البيع (Vendu)")
+                      }
+                    } else if (!isMine && listing.status == "active") {
+                      Button(
+                        onClick = {
+                          onSubmitMarketOrder(
+                            MarketplaceOrder(
+                              requesterName = requesterDisplayName,
+                              requesterRole = activeRole.code,
+                              providerId = listing.userId,
+                              targetRole = UserRole.FARMER.code,
+                              targetItemId = listing.id,
+                              orderType = "purchase_request",
+                              itemTitle = "${crop.titleAr} (${listing.operatorName})",
+                              wilaya = listing.wilaya,
+                              quantity = listing.availableTons.coerceAtMost(5.0),
+                              unitLabel = "طن",
+                              proposedPriceDzd = listing.pricePerKgDzd * 1000.0,
+                              notes = "طلب شراء مباشر من السوق العام",
+                            )
+                          )
+                        },
+                        modifier = Modifier.height(48.dp).testTag("buy_harvest_${listing.id}"),
+                      ) {
+                        Text(
+                          RoleStrings.tr(
+                            language,
+                            ar = "طلب شراء المحصول",
+                            fr = "Acheter / Commander",
+                            en = "Purchase Request",
+                          )
+                        )
                       }
                     }
                   }

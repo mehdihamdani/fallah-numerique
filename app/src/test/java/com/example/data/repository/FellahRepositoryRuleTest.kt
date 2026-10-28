@@ -157,12 +157,12 @@ class FellahRepositoryRuleTest : FirestoreEmulatorTestBase() {
       withTimeout(DEFAULT_TIMEOUT_MS) {
         repository.createServiceBooking(
           ServiceBooking(
-            serviceCategory = "drone_ndvi_scan",
-            serviceTitle = "مسح طيفي بطائرات الدرون NDVI",
+            serviceCategory = "plowing_leveling",
+            serviceTitle = "حرث وتسوية الأرض",
             parcelReference = "Ilot N 108 / P-24",
             wilaya = "07 - بسكرة (Biskra)",
             preferredDate = "2026-11-05",
-            notes = "فحص النخيل",
+            notes = "تسوية 4.82 هكتار بالليزر",
           )
         )
       }

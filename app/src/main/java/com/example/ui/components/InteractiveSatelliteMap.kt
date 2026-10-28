@@ -1,7 +1,10 @@
 package com.example.ui.components
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,13 +30,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Grid4x4
 import androidx.compose.material.icons.filled.Landscape
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Polyline
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
@@ -50,6 +59,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +79,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -84,6 +95,8 @@ import com.example.data.model.MapLayerMode
 import com.example.data.model.NormalizedPoint
 import com.example.ui.theme.OasisAmberDim
 import com.example.ui.theme.PlusJakartaSansFamily
+import com.example.util.GeoCoordinateMapper
+import com.example.util.GeoCoordinateMapper.GeoLatLng
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.hypot
@@ -105,7 +118,27 @@ fun InteractiveSatelliteMapSection(
   onOpenCadastralEditor: () -> Unit,
   onOpenNdviHistory: () -> Unit,
   modifier: Modifier = Modifier,
+  preferGoogleMapsEngine: Boolean = true,
+  isEffectiveOffline: Boolean = false,
+  downloadedRegionsCount: Int = 0,
+  onToggleMapEngine: (Boolean) -> Unit = {},
+  onGoogleMapLatLngTap: (GeoLatLng) -> Unit = {},
+  onGoogleMapVertexDrag: (Int, GeoLatLng) -> Unit = { _, _ -> },
+  onOpenOfflineManager: () -> Unit = {},
 ) {
+  val context = LocalContext.current
+  val isUnitTest = remember { isRunningInUnitTestEnvironment() }
+  val isCurrentParcelCachedOffline = downloadedRegionsCount > 0
+
+  // Keyless Live Satellite Demo Engine is enabled out-of-the-box without requiring any API key!
+  // Users can also toggle between Live Satellite Tiles (cached on disk for offline use) and Vector Topographic Canvas.
+  val renderLiveDemoSatelliteMap = preferGoogleMapsEngine && !isUnitTest
+
+  val geoCenter =
+    remember(parcel.coordinatesLabel) {
+      GeoCoordinateMapper.parseCenterCoordinates(parcel.coordinatesLabel)
+    }
+
   Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Card(
       shape = RoundedCornerShape(16.dp),
@@ -125,7 +158,7 @@ fun InteractiveSatelliteMapSection(
       Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         // Map Header & Layer Switcher
         FlowRow(
-          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+          modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -140,7 +173,8 @@ fun InteractiveSatelliteMapSection(
             ) {
               Box(contentAlignment = Alignment.Center) {
                 Icon(
-                  imageVector = Icons.Filled.SatelliteAlt,
+                  imageVector =
+                    if (renderLiveDemoSatelliteMap) Icons.Filled.SatelliteAlt else Icons.Filled.Map,
                   contentDescription = null,
                   tint = MaterialTheme.colorScheme.onPrimaryContainer,
                   modifier = Modifier.size(22.dp),
@@ -154,7 +188,14 @@ fun InteractiveSatelliteMapSection(
                 color = MaterialTheme.colorScheme.onSurface,
               )
               Text(
-                text = "Vue Hybride HD • ${parcel.name} (${parcel.commune})",
+                text =
+                  if (isEffectiveOffline) {
+                    "الوضع التجريبي أوفلاين (ذاكرة القمر الصناعي المحلية) • ${parcel.name}"
+                  } else if (renderLiveDemoSatelliteMap) {
+                    "الوضع التجريبي النشط (قمر صناعي حي بدون مفتاح API) • ${parcel.name}"
+                  } else {
+                    "المخطط الطبوغرافي الهندسي + ربط Google Maps • ${parcel.name}"
+                  },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
@@ -194,13 +235,137 @@ fun InteractiveSatelliteMapSection(
           }
         }
 
-        // Interactive Map Canvas + Floating HUDs
-        val vertices = remember(parcel.polygonPoints) { parcel.polygonPoints.map { NormalizedPoint.decode(it) } }
+        // Google Maps Engine & Offline Regions Action Strip
+        FlowRow(
+          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Surface(
+              shape = RoundedCornerShape(50),
+              color =
+                if (isEffectiveOffline) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.primaryContainer,
+              modifier =
+                Modifier.clip(RoundedCornerShape(50))
+                  .clickable(onClick = onOpenOfflineManager)
+                  .testTag("map_offline_status_badge"),
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
+                Icon(
+                  imageVector =
+                    if (isEffectiveOffline) Icons.Filled.CloudOff
+                    else if (isCurrentParcelCachedOffline) Icons.Filled.CloudDone
+                    else Icons.Filled.CloudDownload,
+                  contentDescription = null,
+                  tint =
+                    if (isEffectiveOffline) MaterialTheme.colorScheme.onSecondaryContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer,
+                  modifier = Modifier.size(15.dp),
+                )
+                Text(
+                  text =
+                    if (isEffectiveOffline) {
+                      "أوفلاين نشط (${downloadedRegionsCount} مناطق محفوظة)"
+                    } else if (isCurrentParcelCachedOffline) {
+                      "جاهز أوفلاين (${downloadedRegionsCount} مناطق)"
+                    } else {
+                      stringResource(R.string.btn_download_offline_map)
+                    },
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color =
+                    if (isEffectiveOffline) MaterialTheme.colorScheme.onSecondaryContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+              }
+            }
+
+            Surface(
+              shape = RoundedCornerShape(50),
+              color = MaterialTheme.colorScheme.surfaceContainer,
+              modifier =
+                Modifier.clip(RoundedCornerShape(50))
+                  .clickable { onToggleMapEngine(!preferGoogleMapsEngine) }
+                  .testTag("toggle_google_maps_engine_chip"),
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+              ) {
+                Icon(
+                  imageVector = Icons.Filled.Layers,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(14.dp),
+                )
+                Text(
+                  text =
+                    if (renderLiveDemoSatelliteMap) {
+                      "خريطة تجريبية حية (بدون مفتاح) ✓"
+                    } else {
+                      "مخطط طبوغرافي محلي ✓ (تبديل للحي)"
+                    },
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.SemiBold,
+                  color = MaterialTheme.colorScheme.onSurface,
+                )
+              }
+            }
+          }
+
+          // Direct Deep-Link to Google Maps App with exact WGS84 coordinates (works online & with Google Maps offline areas)
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier =
+              Modifier.clip(RoundedCornerShape(8.dp))
+                .clickable {
+                  openInExternalGoogleMaps(
+                    context = context,
+                    lat = geoCenter.latitude,
+                    lng = geoCenter.longitude,
+                    label = "${parcel.name} - ${parcel.ilotNumber}",
+                  )
+                }
+                .testTag("open_external_google_maps_button"),
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.OpenInNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+              )
+              Text(
+                text = stringResource(R.string.btn_open_in_google_maps),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+              )
+            }
+          }
+        }
+
+        // Interactive Map Viewport + Floating HUDs
+        val vertices =
+          remember(parcel.polygonPoints) {
+            parcel.polygonPoints.map { NormalizedPoint.decode(it) }
+          }
         val wellPt = remember(parcel.wellPoint) { NormalizedPoint.decode(parcel.wellPoint) }
-        val latestVertices by rememberUpdatedState(vertices)
-        val latestMapTool by rememberUpdatedState(mapTool)
-        val latestOnTap by rememberUpdatedState(onMapTap)
-        val latestOnDrag by rememberUpdatedState(onVertexDrag)
 
         BoxWithConstraints(
           modifier =
@@ -212,176 +377,30 @@ fun InteractiveSatelliteMapSection(
           val density = LocalDensity.current
           val widthPx = with(density) { maxWidth.toPx() }
           val heightPx = with(density) { maxHeight.toPx() }
-          var draggedVertexIndex by remember { mutableIntStateOf(-1) }
 
-          Canvas(
-            modifier =
-              Modifier.fillMaxSize()
-                .pointerInput(Unit) {
-                  detectTapGestures { tapOffset ->
-                    if (size.width > 0 && size.height > 0) {
-                      val norm =
-                        NormalizedPoint(
-                          tapOffset.x / size.width.toFloat(),
-                          tapOffset.y / size.height.toFloat(),
-                        )
-                      latestOnTap(norm)
-                    }
-                  }
-                }
-                .pointerInput(Unit) {
-                  detectDragGestures(
-                    onDragStart = { startOffset ->
-                      if (size.width <= 0 || size.height <= 0) return@detectDragGestures
-                      val hitRadiusPx = 36f * density.density
-                      var closestIdx = -1
-                      var minDist = Float.MAX_VALUE
-                      latestVertices.forEachIndexed { idx, v ->
-                        val vx = v.x * size.width
-                        val vy = v.y * size.height
-                        val d = hypot(startOffset.x - vx, startOffset.y - vy)
-                        if (d < hitRadiusPx && d < minDist) {
-                          minDist = d
-                          closestIdx = idx
-                        }
-                      }
-                      draggedVertexIndex = closestIdx
-                    },
-                    onDrag = { change, _ ->
-                      if (draggedVertexIndex >= 0 && size.width > 0 && size.height > 0) {
-                        change.consume()
-                        val norm =
-                          NormalizedPoint(
-                            change.position.x / size.width.toFloat(),
-                            change.position.y / size.height.toFloat(),
-                          )
-                        latestOnDrag(draggedVertexIndex, norm)
-                      }
-                    },
-                    onDragEnd = { draggedVertexIndex = -1 },
-                    onDragCancel = { draggedVertexIndex = -1 },
-                  )
-                }
-          ) {
-            when (mapLayerMode) {
-              MapLayerMode.SATELLITE -> drawTolgaOasisSatelliteTerrain()
-              MapLayerMode.RELIEF -> drawReliefTopographyTerrain()
-              MapLayerMode.CADASTRE -> drawCadastreLotGrid(parcel.ilotNumber)
-            }
-
-            // Atmospheric top & bottom scrims for crisp HUD contrast
-            drawRect(
-              brush =
-                Brush.verticalGradient(
-                  colors =
-                    listOf(
-                      Color.Black.copy(alpha = 0.45f),
-                      Color.Transparent,
-                      Color.Transparent,
-                      Color.Black.copy(alpha = 0.58f),
-                    )
-                ),
-              size = size,
+          if (renderLiveDemoSatelliteMap) {
+            LiveDemoSatelliteMapViewport(
+              parcel = parcel,
+              geoCenter = geoCenter,
+              vertices = vertices,
+              wellPt = wellPt,
+              mapLayerMode = mapLayerMode,
+              isEffectiveOffline = isEffectiveOffline,
+              onMapLatLngTap = onGoogleMapLatLngTap,
+              onMapVertexDrag = onGoogleMapVertexDrag,
             )
-
-            // Draw Cadastral Polygon Overlay
-            if (vertices.size >= 3) {
-              val polyPath = Path()
-              var cxSum = 0f
-              var cySum = 0f
-              vertices.forEachIndexed { idx, pt ->
-                val px = pt.x * size.width
-                val py = pt.y * size.height
-                cxSum += px
-                cySum += py
-                if (idx == 0) polyPath.moveTo(px, py) else polyPath.lineTo(px, py)
-              }
-              polyPath.close()
-
-              drawPath(
-                path = polyPath,
-                color = Color(0xFF1E7E34).copy(alpha = 0.30f),
-              )
-              drawPath(
-                path = polyPath,
-                color = Color(0xFF38B000),
-                style =
-                  Stroke(
-                    width = 3.5.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 10f), 0f),
-                  ),
-              )
-
-              // Dashed amber irrigation pipeline from borehole to parcel centroid
-              val centroid = Offset(cxSum / vertices.size, cySum / vertices.size)
-              val wellOffset = Offset(wellPt.x * size.width, wellPt.y * size.height)
-              drawLine(
-                color = OasisAmberDim,
-                start = wellOffset,
-                end = centroid,
-                strokeWidth = 2.8.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), 0f),
-              )
-
-              // Draw GPS Vertex Nodes
-              vertices.forEach { pt ->
-                val nodeOffset = Offset(pt.x * size.width, pt.y * size.height)
-                drawCircle(
-                  color = Color.White,
-                  radius = 7.dp.toPx(),
-                  center = nodeOffset,
-                )
-                drawCircle(
-                  color = Color(0xFF1E7E34),
-                  radius = 7.dp.toPx(),
-                  center = nodeOffset,
-                  style = Stroke(width = 3.dp.toPx()),
-                )
-              }
-            }
-          }
-
-          // Floating Borehole (Forage) Marker
-          val wellXPx = (wellPt.x * widthPx).roundToInt()
-          val wellYPx = (wellPt.y * heightPx).roundToInt()
-          Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier =
-              Modifier.offset {
-                IntOffset(
-                  x = (wellXPx - with(density) { 64.dp.toPx() }.roundToInt()).coerceIn(8, (widthPx - 140).roundToInt().coerceAtLeast(8)),
-                  y = (wellYPx - with(density) { 28.dp.toPx() }.roundToInt()).coerceIn(60, (heightPx - 95).roundToInt().coerceAtLeast(60)),
-                )
-              },
-          ) {
-            Box(
-              modifier =
-                Modifier.size(34.dp)
-                  .clip(CircleShape)
-                  .background(MaterialTheme.colorScheme.secondary)
-                  .border(3.dp, Color.White.copy(alpha = 0.75f), CircleShape),
-              contentAlignment = Alignment.Center,
-            ) {
-              Icon(
-                imageVector = Icons.Filled.WaterDrop,
-                contentDescription = parcel.wellDepthLabel,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp),
-              )
-            }
-            Spacer(modifier = Modifier.height(3.dp))
-            Surface(
-              shape = RoundedCornerShape(6.dp),
-              color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.90f),
-            ) {
-              Text(
-                text = parcel.wellDepthLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.inverseOnSurface,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                maxLines = 1,
-              )
-            }
+          } else {
+            OfflineTopographicCanvasViewport(
+              parcel = parcel,
+              vertices = vertices,
+              wellPt = wellPt,
+              mapLayerMode = mapLayerMode,
+              mapTool = mapTool,
+              widthPx = widthPx,
+              heightPx = heightPx,
+              onMapTap = onMapTap,
+              onVertexDrag = onVertexDrag,
+            )
           }
 
           // Top-Start Live Calibrated Surface Area HUD Card
@@ -493,7 +512,7 @@ fun InteractiveSatelliteMapSection(
                   Text(
                     text =
                       if (mapTool == MapInteractionTool.DRAW_POLYGON) {
-                        "وضع الرسم نشط: اضغط لإضافة رأس جديد أو اسحب النقاط البيضاء"
+                        "وضع الرسم نشط: اضغط على الخريطة لإضافة رأس جديد أو اسحب النقاط"
                       } else {
                         "وضع تحديد البئر: اضغط على موقع نقطة السقي (Forage) فوق الخريطة"
                       },
@@ -619,6 +638,29 @@ fun InteractiveSatelliteMapSection(
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
                   text = stringResource(R.string.btn_live_gps),
+                  style = MaterialTheme.typography.labelLarge,
+                )
+              }
+
+              Button(
+                onClick = onOpenOfflineManager,
+                shape = RoundedCornerShape(10.dp),
+                colors =
+                  ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                  ),
+                modifier = Modifier.height(48.dp).testTag("offline_maps_manager_button"),
+              ) {
+                Icon(
+                  imageVector = Icons.Filled.CloudDownload,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                  text = "خرائط أوفلاين",
                   style = MaterialTheme.typography.labelLarge,
                 )
               }
@@ -795,6 +837,232 @@ fun InteractiveSatelliteMapSection(
   }
 }
 
+
+
+@Composable
+private fun OfflineTopographicCanvasViewport(
+  parcel: AgriculturalParcel,
+  vertices: List<NormalizedPoint>,
+  wellPt: NormalizedPoint,
+  mapLayerMode: MapLayerMode,
+  mapTool: MapInteractionTool,
+  widthPx: Float,
+  heightPx: Float,
+  onMapTap: (NormalizedPoint) -> Unit,
+  onVertexDrag: (Int, NormalizedPoint) -> Unit,
+) {
+  val density = LocalDensity.current
+  val latestVertices by rememberUpdatedState(vertices)
+  val latestOnTap by rememberUpdatedState(onMapTap)
+  val latestOnDrag by rememberUpdatedState(onVertexDrag)
+  var draggedVertexIndex by remember { mutableIntStateOf(-1) }
+
+  Box(modifier = Modifier.fillMaxSize()) {
+    Canvas(
+      modifier =
+        Modifier.fillMaxSize()
+          .pointerInput(Unit) {
+            detectTapGestures { tapOffset ->
+              if (size.width > 0 && size.height > 0) {
+                val norm =
+                  NormalizedPoint(
+                    tapOffset.x / size.width.toFloat(),
+                    tapOffset.y / size.height.toFloat(),
+                  )
+                latestOnTap(norm)
+              }
+            }
+          }
+          .pointerInput(Unit) {
+            detectDragGestures(
+              onDragStart = { startOffset ->
+                if (size.width <= 0 || size.height <= 0) return@detectDragGestures
+                val hitRadiusPx = 36f * density.density
+                var closestIdx = -1
+                var minDist = Float.MAX_VALUE
+                latestVertices.forEachIndexed { idx, v ->
+                  val vx = v.x * size.width
+                  val vy = v.y * size.height
+                  val d = hypot(startOffset.x - vx, startOffset.y - vy)
+                  if (d < hitRadiusPx && d < minDist) {
+                    minDist = d
+                    closestIdx = idx
+                  }
+                }
+                draggedVertexIndex = closestIdx
+              },
+              onDrag = { change, _ ->
+                if (draggedVertexIndex >= 0 && size.width > 0 && size.height > 0) {
+                  change.consume()
+                  val norm =
+                    NormalizedPoint(
+                      change.position.x / size.width.toFloat(),
+                      change.position.y / size.height.toFloat(),
+                    )
+                  latestOnDrag(draggedVertexIndex, norm)
+                }
+              },
+              onDragEnd = { draggedVertexIndex = -1 },
+              onDragCancel = { draggedVertexIndex = -1 },
+            )
+          }
+    ) {
+      when (mapLayerMode) {
+        MapLayerMode.SATELLITE -> drawTolgaOasisSatelliteTerrain()
+        MapLayerMode.RELIEF -> drawReliefTopographyTerrain()
+        MapLayerMode.CADASTRE -> drawCadastreLotGrid(parcel.ilotNumber)
+      }
+
+      // Atmospheric top & bottom scrims for crisp HUD contrast
+      drawRect(
+        brush =
+          Brush.verticalGradient(
+            colors =
+              listOf(
+                Color.Black.copy(alpha = 0.45f),
+                Color.Transparent,
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.58f),
+              )
+          ),
+        size = size,
+      )
+
+      // Draw Cadastral Polygon Overlay
+      if (vertices.size >= 3) {
+        val polyPath = Path()
+        var cxSum = 0f
+        var cySum = 0f
+        vertices.forEachIndexed { idx, pt ->
+          val px = pt.x * size.width
+          val py = pt.y * size.height
+          cxSum += px
+          cySum += py
+          if (idx == 0) polyPath.moveTo(px, py) else polyPath.lineTo(px, py)
+        }
+        polyPath.close()
+
+        drawPath(
+          path = polyPath,
+          color = Color(0xFF1E7E34).copy(alpha = 0.30f),
+        )
+        drawPath(
+          path = polyPath,
+          color = Color(0xFF38B000),
+          style =
+            Stroke(
+              width = 3.5.dp.toPx(),
+              pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 10f), 0f),
+            ),
+        )
+
+        val centroid = Offset(cxSum / vertices.size, cySum / vertices.size)
+        val wellOffset = Offset(wellPt.x * size.width, wellPt.y * size.height)
+        drawLine(
+          color = OasisAmberDim,
+          start = wellOffset,
+          end = centroid,
+          strokeWidth = 2.8.dp.toPx(),
+          pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), 0f),
+        )
+
+        vertices.forEach { pt ->
+          val nodeOffset = Offset(pt.x * size.width, pt.y * size.height)
+          drawCircle(
+            color = Color.White,
+            radius = 7.dp.toPx(),
+            center = nodeOffset,
+          )
+          drawCircle(
+            color = Color(0xFF1E7E34),
+            radius = 7.dp.toPx(),
+            center = nodeOffset,
+            style = Stroke(width = 3.dp.toPx()),
+          )
+        }
+      }
+    }
+
+    // Floating Borehole (Forage) Marker
+    val wellXPx = (wellPt.x * widthPx).roundToInt()
+    val wellYPx = (wellPt.y * heightPx).roundToInt()
+    Column(
+      horizontalAlignment = Alignment.CenterHorizontally,
+      modifier =
+        Modifier.offset {
+          IntOffset(
+            x =
+              (wellXPx - with(density) { 64.dp.toPx() }.roundToInt()).coerceIn(
+                8,
+                (widthPx - 140).roundToInt().coerceAtLeast(8),
+              ),
+            y =
+              (wellYPx - with(density) { 28.dp.toPx() }.roundToInt()).coerceIn(
+                60,
+                (heightPx - 95).roundToInt().coerceAtLeast(60),
+              ),
+          )
+        },
+    ) {
+      Box(
+        modifier =
+          Modifier.size(34.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.secondary)
+            .border(3.dp, Color.White.copy(alpha = 0.75f), CircleShape),
+        contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+          imageVector = Icons.Filled.WaterDrop,
+          contentDescription = parcel.wellDepthLabel,
+          tint = Color.White,
+          modifier = Modifier.size(18.dp),
+        )
+      }
+      Spacer(modifier = Modifier.height(3.dp))
+      Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.90f),
+      ) {
+        Text(
+          text = parcel.wellDepthLabel,
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.inverseOnSurface,
+          modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+          maxLines = 1,
+        )
+      }
+    }
+  }
+}
+
+private fun openInExternalGoogleMaps(
+  context: Context,
+  lat: Double,
+  lng: Double,
+  label: String,
+) {
+  val encodedLabel = Uri.encode(label)
+  val geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng($encodedLabel)")
+  val mapsIntent =
+    Intent(Intent.ACTION_VIEW, geoUri).apply {
+      setPackage("com.google.android.apps.maps")
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+  runCatching { context.startActivity(mapsIntent) }
+    .onFailure {
+      val webUri =
+        Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng")
+      runCatching {
+        context.startActivity(
+          Intent(Intent.ACTION_VIEW, webUri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+        )
+      }
+    }
+}
+
 @Composable
 private fun MapModePill(
   mode: MapLayerMode,
@@ -874,7 +1142,6 @@ private fun CadastralMetaTile(
 }
 
 private fun DrawScope.drawTolgaOasisSatelliteTerrain() {
-  // Base Saharan oasis sandy-loam and fertile basin wash
   drawRect(
     brush =
       Brush.linearGradient(
@@ -885,7 +1152,6 @@ private fun DrawScope.drawTolgaOasisSatelliteTerrain() {
     size = size,
   )
 
-  // Cultivated date-palm grove blocks across Tolga-Foughala-Lichana belt
   val groveBlocks =
     listOf(
       Triple(Offset(size.width * 0.14f, size.height * 0.16f), Size(size.width * 0.62f, size.height * 0.66f), Color(0xFF2E4D2B)),
@@ -896,7 +1162,6 @@ private fun DrawScope.drawTolgaOasisSatelliteTerrain() {
     drawRect(color = tint.copy(alpha = 0.72f), topLeft = topLeft, size = blockSize)
   }
 
-  // Ordered Deglet Nour palm canopy dot grid inside the oasis belt
   val stepX = (size.width / 36f).coerceAtLeast(14f)
   val stepY = (size.height / 24f).coerceAtLeast(14f)
   var x = size.width * 0.12f
@@ -913,7 +1178,6 @@ private fun DrawScope.drawTolgaOasisSatelliteTerrain() {
     x += stepX
   }
 
-  // Regional Highway N46 & N46B corridors
   val roadStroke = Stroke(width = 3.2.dp.toPx())
   val n46Path =
     Path().apply {
@@ -932,7 +1196,6 @@ private fun DrawScope.drawTolgaOasisSatelliteTerrain() {
     }
   drawPath(n46bPath, color = Color(0xFFD8D4C5).copy(alpha = 0.65f), style = Stroke(width = 2.dp.toPx()))
 
-  // Oasis Locality Labels (Tolga, Foughala, Lichana, Bouchagroune, Bordj Ben Azzouz)
   val labelPaint =
     Paint(Paint.ANTI_ALIAS_FLAG).apply {
       color = android.graphics.Color.argb(225, 245, 250, 245)

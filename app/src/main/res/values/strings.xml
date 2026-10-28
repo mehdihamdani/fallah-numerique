@@ -70,8 +70,23 @@
     <string name="nav_settings">الإعدادات</string>
     <string name="transport_screen_title">النقل واللوجستيك الفلاحي</string>
     <string name="transport_screen_subtitle">طلب شاحنات التبريد والشحن الفلاحي وتتبع الإرساليات نحو أسواق الجملة ومراكز التصدير</string>
-    <string name="services_screen_title">الخدمات الفلاحية والتقنية</string>
-    <string name="services_screen_subtitle">حجز تحاليل التربة المخبرية (INRAA)، المسح بالدرون NDVI، العتاد الفلاحي، وحفر الآبار</string>
+    <string name="services_screen_title">الخدمات الفلاحية الشاملة</string>
+    <string name="services_screen_subtitle">الإنتاج الزراعي، التجهيزات والمستلزمات، مخازن التبريد، النقل الزراعي، والاستشارات والخدمات الرقمية (مهندس زراعي، أسعار السوق، والطقس الزراعي)</string>
     <string name="settings_screen_title">الإعدادات وحساب الفلاح</string>
     <string name="settings_screen_subtitle">إدارة بيانات المستثمرة الفلاحية، تفضيلات اللغة والخرائط، وتصدير السجلات</string>
+    <string name="google_maps_active_badge">خرائط Google الحية • نشطة</string>
+    <string name="offline_map_fallback_badge">الخريطة الطبوغرافية أوفلاين • نشطة</string>
+    <string name="offline_mode_active_chip">وضع أوفلاين (بدون إنترنت)</string>
+    <string name="online_mode_active_chip">متصل بالسحابة وخرائط Google</string>
+    <string name="btn_download_offline_map">تنزيل المنطقة أوفلاين</string>
+    <string name="btn_open_in_google_maps">فتح في تطبيق Google Maps</string>
+    <string name="offline_regions_manager_title">مدير الخرائط المحفوظة بدون اتصال (Offline Maps)</string>
+    <string name="offline_regions_manager_subtitle">تنزيل وحفظ خرائط المستثمرة والأحواض الفلاحية للعمل الميداني في المناطق الصحراوية والنائية بدون تغطية إنترنت.</string>
+    <string name="visitor_mode_btn_ar">تصفح المنصة كزائر بدون تسجيل</string>
+    <string name="visitor_mode_btn_fr">Explorer la plateforme en visiteur</string>
+    <string name="visitor_mode_btn_en">Browse Platform as Visitor</string>
+    <string name="onboarding_welcome_ar">مرحبًا بك في فلاح نوميريك. كيف تريد استخدام المنصة؟</string>
+    <string name="onboarding_welcome_fr">Bienvenue sur Fellah Numérique. Comment souhaitez-vous utiliser la plateforme ?</string>
+    <string name="onboarding_welcome_en">Welcome to Fellah Numérique. How would you like to use the platform?</string>
+    <string name="role_management_title">إدارة الأنشطة المهنية وتعدد الأدوار</string>
 </resources>

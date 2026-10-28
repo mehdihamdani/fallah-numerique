@@ -47,6 +47,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -92,6 +93,7 @@ fun LoginScreen(
   initialLanguage: AppLanguage = AppLanguage.AR,
   onLanguageChanged: (AppLanguage) -> Unit = {},
   onAuthSuccess: () -> Unit = {},
+  onEnterVisitorMode: () -> Unit = {},
   loginViewModel: LoginViewModel = viewModel(),
 ) {
   val context = LocalContext.current
@@ -126,6 +128,7 @@ fun LoginScreen(
       )
     },
     onDismissMessage = loginViewModel::dismissMessage,
+    onEnterVisitorMode = onEnterVisitorMode,
   )
 }
 
@@ -135,6 +138,7 @@ fun LoginScreenContent(
   onLanguageSelected: (AppLanguage) -> Unit,
   onSignInClick: () -> Unit,
   onDismissMessage: () -> Unit,
+  onEnterVisitorMode: () -> Unit = {},
 ) {
   val layoutDirection =
     if (uiState.language == AppLanguage.AR) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -207,6 +211,7 @@ fun LoginScreenContent(
               onLanguageSelected = onLanguageSelected,
               onSignInClick = onSignInClick,
               onDismissMessage = onDismissMessage,
+              onEnterVisitorMode = onEnterVisitorMode,
             )
           }
         }
@@ -225,6 +230,7 @@ fun LoginScreenContent(
             onLanguageSelected = onLanguageSelected,
             onSignInClick = onSignInClick,
             onDismissMessage = onDismissMessage,
+            onEnterVisitorMode = onEnterVisitorMode,
           )
         }
       }
@@ -239,6 +245,7 @@ private fun LoginAuthCard(
   onLanguageSelected: (AppLanguage) -> Unit,
   onSignInClick: () -> Unit,
   onDismissMessage: () -> Unit,
+  onEnterVisitorMode: () -> Unit = {},
 ) {
   val lang = uiState.language
   val badgeText =
@@ -611,7 +618,38 @@ private fun LoginAuthCard(
         }
       }
 
-      Spacer(modifier = Modifier.height(18.dp))
+      Spacer(modifier = Modifier.height(10.dp))
+
+      OutlinedButton(
+        onClick = onEnterVisitorMode,
+        enabled = !uiState.isBusy,
+        modifier =
+          Modifier.fillMaxWidth()
+            .height(50.dp)
+            .testTag("enter_visitor_mode_button"),
+        shape = RoundedCornerShape(14.dp),
+      ) {
+        Icon(
+          imageVector = Icons.Filled.Storefront,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+          text =
+            when (lang) {
+              AppLanguage.AR -> stringResource(R.string.visitor_mode_btn_ar)
+              AppLanguage.FR -> stringResource(R.string.visitor_mode_btn_fr)
+              AppLanguage.EN -> stringResource(R.string.visitor_mode_btn_en)
+            },
+          style = MaterialTheme.typography.labelLarge,
+          fontWeight = FontWeight.Bold,
+          color = MaterialTheme.colorScheme.primary,
+        )
+      }
+
+      Spacer(modifier = Modifier.height(16.dp))
       HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
       Spacer(modifier = Modifier.height(14.dp))
 

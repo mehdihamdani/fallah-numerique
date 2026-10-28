@@ -285,7 +285,25 @@
         },
         "serviceCategory": {
           "type": "string",
-          "enum": ["soil_lab_inraa", "drone_ndvi_scan", "forage_drilling", "harvester_rental", "agronomic_advisory"],
+          "enum": [
+            "plowing_leveling",
+            "tractor_machinery_rental",
+            "irrigation_install_maint",
+            "farm_labor_supply",
+            "harvesting_picking",
+            "seeds_seedlings",
+            "fertilizers_supply",
+            "cold_storage_warehouses",
+            "agricultural_transport_service",
+            "agronomist_consultation",
+            "market_prices_service",
+            "agri_weather_service",
+            "soil_lab_inraa",
+            "drone_ndvi_scan",
+            "forage_drilling",
+            "harvester_rental",
+            "agronomic_advisory"
+          ],
           "description": "Category of agricultural service."
         },
         "serviceTitle": {
@@ -336,6 +354,752 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "UserAccountProfile": {
+      "title": "UserAccountProfile",
+      "description": "Multi-role operator account profile storing assigned roles, active default role, language, and resumable onboarding status.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated user UID matching document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Operator full name or organization display name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Authenticated Google account email address."
+        },
+        "preferredLanguage": {
+          "type": "string",
+          "enum": ["AR", "FR", "EN"],
+          "description": "Preferred interface language."
+        },
+        "assignedRoles": {
+          "type": "array",
+          "description": "Bounded unique list (0..6) of professional role codes assigned to this user."
+        },
+        "defaultRole": {
+          "type": "string",
+          "enum": ["", "farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Active/default role code; must belong to assignedRoles when onboarding is completed."
+        },
+        "onboardingCompleted": {
+          "type": "boolean",
+          "description": "Whether initial role onboarding has been completed."
+        },
+        "onboardingStep": {
+          "type": "integer",
+          "description": "Current onboarding step (1..5) allowing interrupted onboarding to resume."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "email",
+        "preferredLanguage",
+        "assignedRoles",
+        "defaultRole",
+        "onboardingCompleted",
+        "onboardingStep",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RoleSpecificProfile": {
+      "title": "RoleSpecificProfile",
+      "description": "Progressive role-specific profile metadata keyed by ${userId}_${roleCode}.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "roleCode": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Professional role identifier."
+        },
+        "businessName": {
+          "type": "string",
+          "description": "Farm, trading company, transport fleet, supplier, service office, or storage facility name."
+        },
+        "wilaya": {
+          "type": "string",
+          "description": "Primary Wilaya or operating region."
+        },
+        "commune": {
+          "type": "string",
+          "description": "Commune or hub zone."
+        },
+        "activityType": {
+          "type": "string",
+          "description": "Role-specific activity subtype (e.g., Wholesale & Retail, Refrigerated Fleet, Seeds & Fertilizers, Cold Storage +4C)."
+        },
+        "capacityOrArea": {
+          "type": "string",
+          "description": "Area in hectares, fleet capacity, service coverage, or cold-storage capacity in tons."
+        },
+        "qualificationsOrDetails": {
+          "type": "string",
+          "description": "Optional agronomic qualifications, certifications, or post-harvest services."
+        },
+        "isProfileComplete": {
+          "type": "boolean",
+          "description": "Whether essential role-specific profile fields have been filled."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "roleCode",
+        "businessName",
+        "wilaya",
+        "commune",
+        "activityType",
+        "capacityOrArea",
+        "qualificationsOrDetails",
+        "isProfileComplete",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PartnerCatalogItem": {
+      "title": "PartnerCatalogItem",
+      "description": "Role-authorized marketplace catalog item for agricultural supplies, transport vehicles/routes, agronomic services, and cold-storage facilities.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated provider UID owning this catalog item."
+        },
+        "providerRole": {
+          "type": "string",
+          "enum": ["farmer", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Role under which this item is published; enforced against /users/{uid}.assignedRoles."
+        },
+        "providerName": {
+          "type": "string",
+          "description": "Organization or operator name."
+        },
+        "title": {
+          "type": "string",
+          "description": "Product, vehicle, service, or warehouse listing title."
+        },
+        "category": {
+          "type": "string",
+          "description": "Subcategory code or label."
+        },
+        "wilaya": {
+          "type": "string",
+          "description": "Location or service coverage Wilaya."
+        },
+        "priceDzd": {
+          "type": "number",
+          "description": "Unit price or tariff in Algerian Dinars."
+        },
+        "unitLabel": {
+          "type": "string",
+          "description": "Pricing unit (e.g., DZD/kg, DZD/ton, DZD/day, DZD/trip)."
+        },
+        "availableQuantityOrCapacity": {
+          "type": "number",
+          "description": "Available stock, tonnage capacity, or daily slots."
+        },
+        "description": {
+          "type": "string",
+          "description": "Technical specifications, storage temperature, or route details."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "paused", "closed"],
+          "description": "Catalog visibility and availability status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "providerRole",
+        "providerName",
+        "title",
+        "category",
+        "wilaya",
+        "priceDzd",
+        "unitLabel",
+        "availableQuantityOrCapacity",
+        "description",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MarketplaceOrder": {
+      "title": "MarketplaceOrder",
+      "description": "B2B agricultural purchase request, supply order, transport quotation, service quotation, or cold-storage reservation.",
+      "type": "object",
+      "properties": {
+        "requesterId": {
+          "type": "string",
+          "description": "UID of the user creating the request/order."
+        },
+        "requesterName": {
+          "type": "string",
+          "description": "Display name of requester."
+        },
+        "requesterRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Active role of requester."
+        },
+        "providerId": {
+          "type": "string",
+          "description": "Target seller/provider UID, or empty string for open role-targeted request."
+        },
+        "targetRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Target professional role expected to fulfill the order/request."
+        },
+        "targetItemId": {
+          "type": "string",
+          "description": "Optional referenced MarketListing or PartnerCatalogItem ID."
+        },
+        "orderType": {
+          "type": "string",
+          "enum": ["purchase_request", "transport_quote", "supply_order", "service_quote", "storage_reservation"],
+          "description": "Type of B2B agricultural transaction."
+        },
+        "itemTitle": {
+          "type": "string",
+          "description": "Requested crop, input supply, transport route, service, or storage facility."
+        },
+        "wilaya": {
+          "type": "string",
+          "description": "Delivery or execution Wilaya."
+        },
+        "quantity": {
+          "type": "number",
+          "description": "Requested quantity or capacity."
+        },
+        "unitLabel": {
+          "type": "string",
+          "description": "Quantity unit (e.g., طن, قنطار, هكتار, يوم)."
+        },
+        "proposedPriceDzd": {
+          "type": "number",
+          "description": "Offered or quoted price in DZD."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Order specifications, quotation response, or pickup/storage notes."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "quoted", "accepted", "completed", "cancelled"],
+          "description": "Order lifecycle status; completed and cancelled are terminal."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "requesterId",
+        "requesterName",
+        "requesterRole",
+        "providerId",
+        "targetRole",
+        "targetItemId",
+        "orderType",
+        "itemTitle",
+        "wilaya",
+        "quantity",
+        "unitLabel",
+        "proposedPriceDzd",
+        "notes",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PlatformMessage": {
+      "title": "PlatformMessage",
+      "description": "Shared account-wide B2B direct message between platform operators across roles.",
+      "type": "object",
+      "properties": {
+        "senderId": {
+          "type": "string",
+          "description": "Authenticated sender UID."
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Sender display name."
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Sender active role at message creation."
+        },
+        "recipientId": {
+          "type": "string",
+          "description": "Recipient operator UID."
+        },
+        "recipientName": {
+          "type": "string",
+          "description": "Recipient display name."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Message subject or listing reference."
+        },
+        "body": {
+          "type": "string",
+          "description": "Message text body."
+        },
+        "isRead": {
+          "type": "boolean",
+          "description": "Whether recipient has marked message as read."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "senderId",
+        "senderName",
+        "senderRole",
+        "recipientId",
+        "recipientName",
+        "subject",
+        "body",
+        "isRead",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AiConversation": {
+      "title": "AiConversation",
+      "description": "Authenticated user conversation thread with Fellah AI agricultural assistant.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "title": {
+          "type": "string",
+          "description": "Conversation title summarized from the opening question (1..120 chars)."
+        },
+        "activeRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Active professional role context for this conversation."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["AR", "FR", "EN"],
+          "description": "Preferred conversation language."
+        },
+        "messageCount": {
+          "type": "integer",
+          "description": "Total persisted messages in this thread (0..500)."
+        },
+        "lastMessagePreview": {
+          "type": "string",
+          "description": "Short preview of the most recent turn (0..240 chars)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "title",
+        "activeRole",
+        "language",
+        "messageCount",
+        "lastMessagePreview",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AiChatMessageRecord": {
+      "title": "AiChatMessageRecord",
+      "description": "Immutable chat turn within an AiConversation distinguishing AI guidance from verified platform data.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "conversationId": {
+          "type": "string",
+          "description": "Parent AiConversation document ID owned by the same userId."
+        },
+        "sender": {
+          "type": "string",
+          "enum": ["user", "assistant"],
+          "description": "Message author type."
+        },
+        "content": {
+          "type": "string",
+          "description": "Sanitized user prompt or AI assistant response text (1..4000 chars)."
+        },
+        "activeRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Active professional role when the turn was recorded."
+        },
+        "verifiedDataSummary": {
+          "type": "string",
+          "description": "Timestamped verified platform data or deterministic calculation summary attached to this turn (0..1500 chars)."
+        },
+        "hasVerifiedPlatformData": {
+          "type": "boolean",
+          "description": "Whether verified platform listings, prices, or deterministic calculations back this message."
+        },
+        "promptTokensEstimate": {
+          "type": "integer",
+          "description": "Estimated input tokens consumed (0..20000)."
+        },
+        "completionTokensEstimate": {
+          "type": "integer",
+          "description": "Estimated output tokens generated (0..20000)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "conversationId",
+        "sender",
+        "content",
+        "activeRole",
+        "verifiedDataSummary",
+        "hasVerifiedPlatformData",
+        "promptTokensEstimate",
+        "completionTokensEstimate",
+        "createdAt"
+      ]
+    },
+    "AiUsageQuota": {
+      "title": "AiUsageQuota",
+      "description": "Per-user daily request and token usage quota tracker for Fellah AI cost control.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated user UID matching document ID."
+        },
+        "dayKey": {
+          "type": "string",
+          "description": "UTC calendar date key formatted YYYY-MM-DD."
+        },
+        "dailyRequestCount": {
+          "type": "integer",
+          "description": "Requests executed on dayKey (0..100)."
+        },
+        "dailyTokensEstimate": {
+          "type": "integer",
+          "description": "Estimated cumulative tokens on dayKey (0..300000)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "dayKey",
+        "dailyRequestCount",
+        "dailyTokensEstimate",
+        "updatedAt"
+      ]
+    },
+    "EditorialAdminRecord": {
+      "title": "EditorialAdminRecord",
+      "description": "Server-provisioned editorial administrator marker granting Fellah Matin publishing and source moderation permissions.",
+      "type": "object",
+      "properties": {
+        "adminId": {
+          "type": "string",
+          "description": "UID of authorized editorial administrator."
+        },
+        "grantedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when editorial privilege was provisioned."
+        }
+      },
+      "required": ["adminId", "grantedAt"]
+    },
+    "NewsArticleRecord": {
+      "title": "NewsArticleRecord",
+      "description": "Verified agricultural news item in Fellah Matin separating original publication date from platform retrieval timestamp.",
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "description": "Editorial admin UID who imported or published the article."
+        },
+        "title": {
+          "type": "string",
+          "description": "Original article headline (4..240 chars)."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Concise attributed summary without full-text republication (10..1200 chars)."
+        },
+        "sourceName": {
+          "type": "string",
+          "description": "Official institution, meteorological office, research institute, or publication name."
+        },
+        "originalUrl": {
+          "type": "string",
+          "description": "Validated https:// canonical link to original article."
+        },
+        "publishedAtIso": {
+          "type": "string",
+          "description": "Original source publication timestamp in ISO-8601 format."
+        },
+        "retrievedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Platform retrieval/verification server timestamp via FieldValue.serverTimestamp()."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "gov_announcements",
+            "crop_production",
+            "market_availability",
+            "weather_alerts",
+            "inputs_and_machinery",
+            "transport_logistics",
+            "cold_storage_postharvest",
+            "services_and_training",
+            "research_and_tech",
+            "events_and_fairs"
+          ],
+          "description": "Canonical Fellah Matin news category."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["AR", "FR", "EN"],
+          "description": "Article language code."
+        },
+        "wilaya": {
+          "type": "string",
+          "description": "Verified Wilaya or geographic scope when supported by source, or empty string for national/general."
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Optional permitted https:// image URL or empty string."
+        },
+        "verificationStatus": {
+          "type": "string",
+          "enum": ["verified_source", "editorial_verified", "unverified"],
+          "description": "Source verification classification."
+        },
+        "moderationStatus": {
+          "type": "string",
+          "enum": ["pending_review", "approved", "rejected"],
+          "description": "Editorial moderation state; only approved articles are visible to general users."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "authorId",
+        "title",
+        "summary",
+        "sourceName",
+        "originalUrl",
+        "publishedAtIso",
+        "retrievedAt",
+        "category",
+        "language",
+        "wilaya",
+        "imageUrl",
+        "verificationStatus",
+        "moderationStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "NewsSourceRecord": {
+      "title": "NewsSourceRecord",
+      "description": "Configured external RSS or institutional agricultural news source managed by editorial administrators.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name of the official institution or publication."
+        },
+        "baseUrl": {
+          "type": "string",
+          "description": "Validated https:// institutional base URL."
+        },
+        "feedUrl": {
+          "type": "string",
+          "description": "Validated https:// RSS/Atom feed endpoint URL."
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": [
+            "official_institution",
+            "meteorological",
+            "research_university",
+            "agri_publication",
+            "market_data",
+            "logistics_regulatory"
+          ],
+          "description": "Institutional classification of the news source."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["AR", "FR", "EN"],
+          "description": "Primary language of the source."
+        },
+        "isEnabled": {
+          "type": "boolean",
+          "description": "Whether automatic ingestion is enabled for this source."
+        },
+        "lastError": {
+          "type": "string",
+          "description": "Sanitized diagnostic error from last ingestion check, or empty string."
+        },
+        "lastCheckedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last ingestion attempt via FieldValue.serverTimestamp()."
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Editorial admin UID who last updated this source."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "name",
+        "baseUrl",
+        "feedUrl",
+        "sourceType",
+        "language",
+        "isEnabled",
+        "lastError",
+        "lastCheckedAt",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
+    "UserNewsPreferences": {
+      "title": "UserNewsPreferences",
+      "description": "Per-user Fellah Matin category, region, and language preferences.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated user UID matching document ID."
+        },
+        "preferredCategories": {
+          "type": "array",
+          "description": "Bounded list (0..10) of preferred Fellah Matin category codes."
+        },
+        "preferredRegion": {
+          "type": "string",
+          "description": "Preferred Wilaya or region filter, or empty string for all Algeria."
+        },
+        "preferredLanguage": {
+          "type": "string",
+          "enum": ["ALL", "AR", "FR", "EN"],
+          "description": "Preferred news language filter."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "preferredCategories",
+        "preferredRegion",
+        "preferredLanguage",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -345,7 +1109,7 @@
     },
     "/market_listings/{listingId}": {
       "schema": "MarketListing",
-      "description": "Public market harvest announcements linked to verified agricultural parcels."
+      "description": "Public agricultural market harvest announcements linked to verified parcels."
     },
     "/transport_requests/{requestId}": {
       "schema": "TransportRequest",
@@ -354,6 +1118,54 @@
     "/service_bookings/{bookingId}": {
       "schema": "ServiceBooking",
       "description": "Per-farmer agricultural lab, drone, mechanization, and borehole service bookings."
+    },
+    "/users/{userId}": {
+      "schema": "UserAccountProfile",
+      "description": "Multi-role operator account profile with assigned roles, default active role, and onboarding state."
+    },
+    "/role_profiles/{profileId}": {
+      "schema": "RoleSpecificProfile",
+      "description": "Per-user role-specific business/farm profile metadata keyed by ${userId}_${roleCode}."
+    },
+    "/partner_catalog/{itemId}": {
+      "schema": "PartnerCatalogItem",
+      "description": "Role-authorized partner catalog for supplies, vehicles, agricultural services, and cold-storage facilities."
+    },
+    "/marketplace_orders/{orderId}": {
+      "schema": "MarketplaceOrder",
+      "description": "B2B purchase requests, quotations, supply orders, and cold-storage reservations."
+    },
+    "/messages/{messageId}": {
+      "schema": "PlatformMessage",
+      "description": "Shared account messages between authenticated operators across all roles."
+    },
+    "/ai_conversations/{conversationId}": {
+      "schema": "AiConversation",
+      "description": "Per-user Fellah AI conversation threads with role and language context."
+    },
+    "/ai_messages/{messageId}": {
+      "schema": "AiChatMessageRecord",
+      "description": "Per-user immutable Fellah AI chat messages linked to owned conversations."
+    },
+    "/ai_usage_quotas/{userId}": {
+      "schema": "AiUsageQuota",
+      "description": "Per-user daily Fellah AI request and token usage quota records."
+    },
+    "/editorial_admins/{adminId}": {
+      "schema": "EditorialAdminRecord",
+      "description": "Read-only editorial administrator registry protecting Fellah Matin publishing and source management."
+    },
+    "/news_articles/{articleId}": {
+      "schema": "NewsArticleRecord",
+      "description": "Curated and moderated Fellah Matin agricultural news feed items."
+    },
+    "/news_sources/{sourceId}": {
+      "schema": "NewsSourceRecord",
+      "description": "Configured external RSS and institutional news sources."
+    },
+    "/user_news_preferences/{userId}": {
+      "schema": "UserNewsPreferences",
+      "description": "Per-user Fellah Matin news feed category, region, and language preferences."
     }
   }
 }
