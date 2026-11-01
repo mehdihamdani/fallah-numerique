@@ -66,6 +66,14 @@ service cloud.firestore {
              data.onboardingCompleted is bool &&
              (!data.onboardingCompleted || (data.assignedRoles.size() >= 1 && data.defaultRole in data.assignedRoles)) &&
              data.onboardingStep is int && data.onboardingStep >= 1 && data.onboardingStep <= 5 &&
+             (!('nationalIdScanned' in data) || data.nationalIdScanned is bool) &&
+             (!('nationalIdNumber' in data) || (data.nationalIdNumber is string && data.nationalIdNumber.size() <= 40)) &&
+             (!('nationalIdHolderName' in data) || (data.nationalIdHolderName is string && data.nationalIdHolderName.size() <= 120)) &&
+             (!('farmerCardScanned' in data) || data.farmerCardScanned is bool) &&
+             (!('farmerCardNumber' in data) || (data.farmerCardNumber is string && data.farmerCardNumber.size() <= 60)) &&
+             (!('farmerCardWilaya' in data) || (data.farmerCardWilaya is string && data.farmerCardWilaya.size() <= 80)) &&
+             (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 32)) &&
+             (!('phoneVerified' in data) || data.phoneVerified is bool) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -164,8 +172,7 @@ service cloud.firestore {
              data.salinityEc is number && data.salinityEc >= 0 && data.salinityEc <= 50 &&
              data.drainageStatus is string && data.drainageStatus.size() >= 1 && data.drainageStatus.size() <= 100 &&
              data.labDocumentName is string && data.labDocumentName.size() <= 200 &&
-             data.mainCrop is string && data.mainCrop.size() <= 40 &&
-             data.mainCrop in ['deglet_nour', 'pomme_de_terre', 'olivier', 'tomate_industrielle'] &&
+             data.mainCrop is string && data.mainCrop.size() <= 80 &&
              data.irrigationSystem is string && data.irrigationSystem.size() >= 1 && data.irrigationSystem.size() <= 100 &&
              data.estimatedYieldTonsPerHa is number && data.estimatedYieldTonsPerHa >= 0 && data.estimatedYieldTonsPerHa <= 500 &&
              data.plantingYear is string && data.plantingYear.size() >= 1 && data.plantingYear.size() <= 60 &&
@@ -181,8 +188,7 @@ service cloud.firestore {
              data.parcelId is string && isValidId(data.parcelId) &&
              data.operatorName is string && data.operatorName.size() >= 1 && data.operatorName.size() <= 100 &&
              data.parcelReference is string && data.parcelReference.size() >= 1 && data.parcelReference.size() <= 80 &&
-             data.cropType is string && data.cropType.size() <= 40 &&
-             data.cropType in ['deglet_nour', 'pomme_de_terre', 'olivier', 'tomate_industrielle'] &&
+             data.cropType is string && data.cropType.size() >= 1 && data.cropType.size() <= 80 &&
              data.wilaya is string && data.wilaya.size() >= 1 && data.wilaya.size() <= 80 &&
              data.availableTons is number && data.availableTons > 0 && data.availableTons <= 100000 &&
              data.pricePerKgDzd is number && data.pricePerKgDzd > 0 && data.pricePerKgDzd <= 100000 &&
@@ -256,7 +262,10 @@ service cloud.firestore {
                        incoming().keys().hasOnly([
                          'userId', 'displayName', 'email', 'preferredLanguage',
                          'assignedRoles', 'defaultRole', 'onboardingCompleted',
-                         'onboardingStep', 'createdAt', 'updatedAt'
+                         'onboardingStep', 'nationalIdScanned', 'nationalIdNumber',
+                         'nationalIdHolderName', 'farmerCardScanned', 'farmerCardNumber',
+                         'farmerCardWilaya', 'phoneNumber', 'phoneVerified',
+                         'createdAt', 'updatedAt'
                        ]) &&
                        isValidUserAccountProfile(incoming());
 
@@ -270,7 +279,9 @@ service cloud.firestore {
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'displayName', 'email', 'preferredLanguage',
                          'assignedRoles', 'defaultRole', 'onboardingCompleted',
-                         'onboardingStep', 'updatedAt'
+                         'onboardingStep', 'nationalIdScanned', 'nationalIdNumber',
+                         'nationalIdHolderName', 'farmerCardScanned', 'farmerCardNumber',
+                         'farmerCardWilaya', 'phoneNumber', 'phoneVerified', 'updatedAt'
                        ]);
 
       allow delete: if false;
@@ -924,6 +935,137 @@ service cloud.firestore {
                        ]);
 
       allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidUserRating(data) {
+      return data.reviewerId is string &&
+             data.reviewerId.size() >= 1 && data.reviewerId.size() <= 60 &&
+             data.reviewerId == request.auth.uid &&
+             data.reviewerName is string &&
+             data.reviewerName.size() >= 1 && data.reviewerName.size() <= 120 &&
+             isValidRoleCode(data.reviewerRole) &&
+             data.targetUserId is string &&
+             data.targetUserId.size() >= 1 && data.targetUserId.size() <= 60 &&
+             isValidId(data.targetUserId) &&
+             data.targetUserId != request.auth.uid &&
+             data.targetName is string &&
+             data.targetName.size() >= 1 && data.targetName.size() <= 120 &&
+             isValidRoleCode(data.targetRole) &&
+             data.stars is int && data.stars >= 1 && data.stars <= 5 &&
+             data.pointsAwarded is int && data.pointsAwarded == data.stars * 20 &&
+             data.comment is string && data.comment.size() <= 300 &&
+             data.contextItemId is string && data.contextItemId.size() <= 128 &&
+             data.status is string && data.status in ['published', 'hidden'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserFavorite(data) {
+      return data.userId is string &&
+             data.userId.size() >= 1 && data.userId.size() <= 56 &&
+             data.userId == request.auth.uid &&
+             data.favoriteType is string &&
+             data.favoriteType in ['operator', 'market_listing', 'partner_item'] &&
+             data.targetId is string &&
+             data.targetId.size() >= 1 && data.targetId.size() <= 56 &&
+             isValidId(data.targetId) &&
+             data.targetOwnerId is string &&
+             data.targetOwnerId.size() >= 1 && data.targetOwnerId.size() <= 128 &&
+             data.targetTitle is string &&
+             data.targetTitle.size() >= 1 && data.targetTitle.size() <= 160 &&
+             data.targetSubtitle is string &&
+             data.targetSubtitle.size() <= 160 &&
+             isValidRoleCode(data.targetRole) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /user_ratings/{ratingId} {
+      allow get: if isSignedIn() &&
+                    isValidId(ratingId) &&
+                    (resource == null ||
+                     existing().reviewerId == request.auth.uid ||
+                     existing().status == 'published');
+      allow list: if isSignedIn() &&
+                     (existing().reviewerId == request.auth.uid ||
+                      existing().status == 'published');
+
+      allow create: if isSignedIn() &&
+                       isValidId(ratingId) &&
+                       ratingId == (request.auth.uid + '_' + incoming().targetUserId) &&
+                       incoming().keys().hasAll([
+                         'reviewerId', 'reviewerName', 'reviewerRole',
+                         'targetUserId', 'targetName', 'targetRole',
+                         'stars', 'pointsAwarded', 'comment', 'contextItemId',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'reviewerId', 'reviewerName', 'reviewerRole',
+                         'targetUserId', 'targetName', 'targetRole',
+                         'stars', 'pointsAwarded', 'comment', 'contextItemId',
+                         'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserRating(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(ratingId) &&
+                       ratingId == (request.auth.uid + '_' + existing().targetUserId) &&
+                       isValidUserRating(incoming()) &&
+                       existing().reviewerId == request.auth.uid &&
+                       incoming().reviewerId == existing().reviewerId &&
+                       incoming().targetUserId == existing().targetUserId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'reviewerName', 'reviewerRole', 'targetName', 'targetRole',
+                         'stars', 'pointsAwarded', 'comment', 'contextItemId',
+                         'status', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() &&
+                       isValidId(ratingId) &&
+                       existing().reviewerId == request.auth.uid;
+    }
+
+    match /user_favorites/{favoriteId} {
+      allow get: if isSignedIn() &&
+                    isValidId(favoriteId) &&
+                    ((resource == null &&
+                      favoriteId.matches('^' + request.auth.uid + '_[a-zA-Z0-9_\\-]+$')) ||
+                     (resource != null && existing().userId == request.auth.uid));
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(favoriteId) &&
+                       favoriteId == (request.auth.uid + '_' + incoming().favoriteType + '_' + incoming().targetId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'favoriteType', 'targetId', 'targetOwnerId',
+                         'targetTitle', 'targetSubtitle', 'targetRole',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'favoriteType', 'targetId', 'targetOwnerId',
+                         'targetTitle', 'targetSubtitle', 'targetRole',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserFavorite(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(favoriteId) &&
+                       favoriteId == (request.auth.uid + '_' + existing().favoriteType + '_' + existing().targetId) &&
+                       isValidUserFavorite(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().favoriteType == existing().favoriteType &&
+                       incoming().targetId == existing().targetId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'targetOwnerId', 'targetTitle', 'targetSubtitle',
+                         'targetRole', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() &&
+                       isValidId(favoriteId) &&
+                       existing().userId == request.auth.uid;
     }
   }
 }

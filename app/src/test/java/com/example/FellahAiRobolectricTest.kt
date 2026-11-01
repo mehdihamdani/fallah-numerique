@@ -569,4 +569,120 @@ class FellahAiRobolectricTest {
     )
     assertNotNull(BuildConfig.APPLICATION_ID)
   }
+
+  // 11. Stalled live SSE stream automatically falls back to fast unary HTTPS POST without timeout error
+  @Test
+  fun `stalled sse live stream automatically falls back to unary gemini flash lite without timeout error`() =
+    runBlocking {
+      val unaryModelsCalled = mutableListOf<String>()
+      val stalledStreamGateway =
+        object : com.example.data.ai.GeminiModelGateway {
+          override fun isEnvironmentConfigured(): Boolean = true
+
+          override fun streamChatChunks(
+            targetModelName: String,
+            context: AiProviderPromptContext,
+          ): Flow<String> = flow {
+            // Simulate carrier proxy hanging the SSE stream before first chunk
+            kotlinx.coroutines.delay(500L)
+            emit("لن يصل هذا الجزء")
+          }
+
+          override suspend fun sendUnaryChat(
+            targetModelName: String,
+            context: AiProviderPromptContext,
+          ): String {
+            unaryModelsCalled.add(targetModelName)
+            return "إجابة فورية عبر المسار الاحتياطي السريع لفلاح الذكي دون انقطاع."
+          }
+        }
+
+      val resilientProvider =
+        FirebaseGeminiAssistantProvider(
+          gateway = stalledStreamGateway,
+          streamStageTimeoutMillis = 60L,
+          unaryFallbackTimeoutMillis = 2_000L,
+          ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined,
+        )
+      val orchestrator = FellahAiOrchestrator(provider = resilientProvider)
+      val events = mutableListOf<FellahAiOrchestrator.StreamEvent>()
+
+      orchestrator
+        .streamChatTurn(
+          request =
+            AiChatRequest(
+              message = "كيف أحسن مردود البطاطا في الوادي؟",
+              activeRole = UserRole.FARMER,
+              language = AppLanguage.AR,
+            ),
+          priorMessages = emptyList(),
+          platformSnapshot = FellahPlatformDataSnapshot(isAuthenticated = false),
+        )
+        .collect { events.add(it) }
+
+      val completed =
+        events.filterIsInstance<FellahAiOrchestrator.StreamEvent.Completed>().singleOrNull()
+      assertNotNull("Expected seamless completion via unary fallback", completed)
+      assertEquals(
+        "إجابة فورية عبر المسار الاحتياطي السريع لفلاح الذكي دون انقطاع.",
+        completed?.response?.replyText,
+      )
+      assertEquals(
+        listOf(FirebaseGeminiAssistantProvider.FALLBACK_FAST_MODEL_NAME),
+        unaryModelsCalled,
+      )
+    }
+
+  // 12. Partial streamed response is preserved if SSE tail stalls at stream close
+  @Test
+  fun `partial streamed answer is preserved when sse stream tail stalls after emitting text`() =
+    runBlocking {
+      val tailStallGateway =
+        object : com.example.data.ai.GeminiModelGateway {
+          override fun isEnvironmentConfigured(): Boolean = true
+
+          override fun streamChatChunks(
+            targetModelName: String,
+            context: AiProviderPromptContext,
+          ): Flow<String> = flow {
+            emit("ينصح بري البطاطا بالتنقيط صباحاً ")
+            emit("لتفادي التبخر والإجهاد الحراري.")
+            // Simulate SSE [DONE] frame hanging after full answer was already streamed
+            kotlinx.coroutines.delay(500L)
+          }
+
+          override suspend fun sendUnaryChat(
+            targetModelName: String,
+            context: AiProviderPromptContext,
+          ): String {
+            fail("Unary fallback must not be called when partial streamed text already arrived")
+            return ""
+          }
+        }
+
+      val resilientProvider =
+        FirebaseGeminiAssistantProvider(
+          gateway = tailStallGateway,
+          streamStageTimeoutMillis = 80L,
+          unaryFallbackTimeoutMillis = 1_000L,
+          ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined,
+        )
+
+      val emissions = mutableListOf<String>()
+      resilientProvider
+        .streamReply(
+          AiProviderPromptContext(
+            systemInstructionText = "Test system prompt",
+            history = emptyList(),
+            userPromptWithSandboxedData = "سؤال تجريبي",
+          )
+        )
+        .collect { emissions.add(it) }
+
+      assertTrue(emissions.isNotEmpty())
+      assertEquals(
+        "ينصح بري البطاطا بالتنقيط صباحاً لتفادي التبخر والإجهاد الحراري.",
+        emissions.last(),
+      )
+    }
 }

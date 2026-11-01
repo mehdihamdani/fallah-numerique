@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -28,15 +29,18 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.SatelliteAlt
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.Button
@@ -48,10 +52,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -74,30 +79,41 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.data.model.AppLanguage
-import com.example.ui.auth.HexagonShape
+import com.example.ui.auth.createCredentialManagerSafely
+import com.example.ui.viewmodel.AuthEntryMethod
 import com.example.ui.viewmodel.LoginAuthStatus
 import com.example.ui.viewmodel.LoginUiState
 import com.example.ui.viewmodel.LoginViewModel
+import com.example.ui.viewmodel.PhoneOtpStep
 
 @Composable
 fun LoginScreen(
   initialLanguage: AppLanguage = AppLanguage.AR,
   onLanguageChanged: (AppLanguage) -> Unit = {},
   onAuthSuccess: () -> Unit = {},
+  onPhoneVerified: (String) -> Unit = {},
   onEnterVisitorMode: () -> Unit = {},
   loginViewModel: LoginViewModel = viewModel(),
 ) {
   val context = LocalContext.current
-  val credentialManager = remember(context) { CredentialManager.create(context) }
+  val credentialManager = remember(context) { createCredentialManagerSafely(context) }
   val uiState by loginViewModel.uiState.collectAsStateWithLifecycle()
 
   LaunchedEffect(initialLanguage) {
@@ -129,6 +145,36 @@ fun LoginScreen(
     },
     onDismissMessage = loginViewModel::dismissMessage,
     onEnterVisitorMode = onEnterVisitorMode,
+    onAuthMethodSelected = loginViewModel::selectAuthMethod,
+    onPhoneInputChanged = loginViewModel::onPhoneInputChanged,
+    onOtpCodeChanged = loginViewModel::onOtpCodeInputChanged,
+    onSendPhoneCodeClick = {
+      loginViewModel.requestPhoneOtpCode(
+        context = context,
+        isResend = false,
+        onInstantAuthSuccess = { verifiedPhone ->
+          onPhoneVerified(verifiedPhone)
+          onAuthSuccess()
+        },
+      )
+    },
+    onVerifyPhoneCodeClick = {
+      loginViewModel.confirmPhoneOtpCode { verifiedPhone ->
+        onPhoneVerified(verifiedPhone)
+        onAuthSuccess()
+      }
+    },
+    onResendPhoneCodeClick = {
+      loginViewModel.requestPhoneOtpCode(
+        context = context,
+        isResend = true,
+        onInstantAuthSuccess = { verifiedPhone ->
+          onPhoneVerified(verifiedPhone)
+          onAuthSuccess()
+        },
+      )
+    },
+    onEditPhoneNumberClick = loginViewModel::editPhoneNumber,
   )
 }
 
@@ -139,6 +185,13 @@ fun LoginScreenContent(
   onSignInClick: () -> Unit,
   onDismissMessage: () -> Unit,
   onEnterVisitorMode: () -> Unit = {},
+  onAuthMethodSelected: (AuthEntryMethod) -> Unit = {},
+  onPhoneInputChanged: (String) -> Unit = {},
+  onOtpCodeChanged: (String) -> Unit = {},
+  onSendPhoneCodeClick: () -> Unit = {},
+  onVerifyPhoneCodeClick: () -> Unit = {},
+  onResendPhoneCodeClick: () -> Unit = {},
+  onEditPhoneNumberClick: () -> Unit = {},
 ) {
   val layoutDirection =
     if (uiState.language == AppLanguage.AR) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -155,45 +208,47 @@ fun LoginScreenContent(
     ) {
       val isExpanded = maxWidth >= 840.dp
 
-      // Atmospheric oasis background gradients
-      Canvas(modifier = Modifier.fillMaxSize()) {
-        drawCircle(
-          brush =
-            Brush.radialGradient(
-              colors = listOf(secondaryContainer.copy(alpha = 0.6f), Color.Transparent),
-              center = Offset(size.width * 0.85f, size.height * 0.14f),
-              radius = size.minDimension * 0.72f,
-            ),
-          radius = size.minDimension * 0.72f,
-          center = Offset(size.width * 0.85f, size.height * 0.14f),
-        )
-        drawCircle(
-          brush =
-            Brush.radialGradient(
-              colors = listOf(primaryColor.copy(alpha = 0.14f), Color.Transparent),
-              center = Offset(size.width * 0.12f, size.height * 0.86f),
-              radius = size.minDimension * 0.65f,
-            ),
-          radius = size.minDimension * 0.65f,
-          center = Offset(size.width * 0.12f, size.height * 0.86f),
-        )
-        drawCircle(
-          brush =
-            Brush.radialGradient(
-              colors = listOf(tertiaryContainer.copy(alpha = 0.35f), Color.Transparent),
-              center = Offset(size.width * 0.5f, size.height * 0.95f),
-              radius = size.minDimension * 0.5f,
-            ),
-          radius = size.minDimension * 0.5f,
-          center = Offset(size.width * 0.5f, size.height * 0.95f),
-        )
-      }
+      Spacer(
+        modifier =
+          Modifier.fillMaxSize().drawWithCache {
+            val center1 = Offset(size.width * 0.85f, size.height * 0.14f)
+            val radius1 = (size.minDimension * 0.72f).coerceAtLeast(1f)
+            val brush1 =
+              Brush.radialGradient(
+                colors = listOf(secondaryContainer.copy(alpha = 0.6f), Color.Transparent),
+                center = center1,
+                radius = radius1,
+              )
+            val center2 = Offset(size.width * 0.12f, size.height * 0.86f)
+            val radius2 = (size.minDimension * 0.65f).coerceAtLeast(1f)
+            val brush2 =
+              Brush.radialGradient(
+                colors = listOf(primaryColor.copy(alpha = 0.14f), Color.Transparent),
+                center = center2,
+                radius = radius2,
+              )
+            val center3 = Offset(size.width * 0.5f, size.height * 0.95f)
+            val radius3 = (size.minDimension * 0.5f).coerceAtLeast(1f)
+            val brush3 =
+              Brush.radialGradient(
+                colors = listOf(tertiaryContainer.copy(alpha = 0.35f), Color.Transparent),
+                center = center3,
+                radius = radius3,
+              )
+            onDrawBehind {
+              drawCircle(brush = brush1, radius = radius1, center = center1)
+              drawCircle(brush = brush2, radius = radius2, center = center2)
+              drawCircle(brush = brush3, radius = radius3, center = center3)
+            }
+          }
+      )
 
       if (isExpanded) {
         Row(
           modifier =
             Modifier.fillMaxSize()
               .windowInsetsPadding(WindowInsets.safeDrawing)
+              .imePadding()
               .padding(horizontal = 32.dp, vertical = 24.dp),
           horizontalArrangement = Arrangement.spacedBy(28.dp),
           verticalAlignment = Alignment.CenterVertically,
@@ -203,15 +258,24 @@ fun LoginScreenContent(
             modifier = Modifier.weight(1.08f).fillMaxHeight(),
           )
           Box(
-            modifier = Modifier.weight(0.92f).fillMaxHeight(),
+            modifier =
+              Modifier.weight(0.92f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState()),
             contentAlignment = Alignment.Center,
           ) {
             LoginAuthCard(
               uiState = uiState,
-              onLanguageSelected = onLanguageSelected,
               onSignInClick = onSignInClick,
               onDismissMessage = onDismissMessage,
               onEnterVisitorMode = onEnterVisitorMode,
+              onAuthMethodSelected = onAuthMethodSelected,
+              onPhoneInputChanged = onPhoneInputChanged,
+              onOtpCodeChanged = onOtpCodeChanged,
+              onSendPhoneCodeClick = onSendPhoneCodeClick,
+              onVerifyPhoneCodeClick = onVerifyPhoneCodeClick,
+              onResendPhoneCodeClick = onResendPhoneCodeClick,
+              onEditPhoneNumberClick = onEditPhoneNumberClick,
             )
           }
         }
@@ -220,6 +284,7 @@ fun LoginScreenContent(
           modifier =
             Modifier.fillMaxSize()
               .windowInsetsPadding(WindowInsets.safeDrawing)
+              .imePadding()
               .verticalScroll(rememberScrollState())
               .padding(horizontal = 20.dp, vertical = 16.dp),
           horizontalAlignment = Alignment.CenterHorizontally,
@@ -227,10 +292,16 @@ fun LoginScreenContent(
         ) {
           LoginAuthCard(
             uiState = uiState,
-            onLanguageSelected = onLanguageSelected,
             onSignInClick = onSignInClick,
             onDismissMessage = onDismissMessage,
             onEnterVisitorMode = onEnterVisitorMode,
+            onAuthMethodSelected = onAuthMethodSelected,
+            onPhoneInputChanged = onPhoneInputChanged,
+            onOtpCodeChanged = onOtpCodeChanged,
+            onSendPhoneCodeClick = onSendPhoneCodeClick,
+            onVerifyPhoneCodeClick = onVerifyPhoneCodeClick,
+            onResendPhoneCodeClick = onResendPhoneCodeClick,
+            onEditPhoneNumberClick = onEditPhoneNumberClick,
           )
         }
       }
@@ -242,10 +313,16 @@ fun LoginScreenContent(
 @Composable
 private fun LoginAuthCard(
   uiState: LoginUiState,
-  onLanguageSelected: (AppLanguage) -> Unit,
   onSignInClick: () -> Unit,
   onDismissMessage: () -> Unit,
   onEnterVisitorMode: () -> Unit = {},
+  onAuthMethodSelected: (AuthEntryMethod) -> Unit = {},
+  onPhoneInputChanged: (String) -> Unit = {},
+  onOtpCodeChanged: (String) -> Unit = {},
+  onSendPhoneCodeClick: () -> Unit = {},
+  onVerifyPhoneCodeClick: () -> Unit = {},
+  onResendPhoneCodeClick: () -> Unit = {},
+  onEditPhoneNumberClick: () -> Unit = {},
 ) {
   val lang = uiState.language
   val badgeText =
@@ -296,6 +373,18 @@ private fun LoginAuthCard(
       AppLanguage.FR -> stringResource(R.string.login_security_footer_fr)
       AppLanguage.EN -> stringResource(R.string.login_security_footer_en)
     }
+  val phoneTabLabel =
+    when (lang) {
+      AppLanguage.AR -> stringResource(R.string.auth_tab_phone_ar)
+      AppLanguage.FR -> stringResource(R.string.auth_tab_phone_fr)
+      AppLanguage.EN -> stringResource(R.string.auth_tab_phone_en)
+    }
+  val googleTabLabel =
+    when (lang) {
+      AppLanguage.AR -> stringResource(R.string.auth_tab_google_ar)
+      AppLanguage.FR -> stringResource(R.string.auth_tab_google_fr)
+      AppLanguage.EN -> stringResource(R.string.auth_tab_google_en)
+    }
 
   Card(
     modifier =
@@ -314,13 +403,13 @@ private fun LoginAuthCard(
     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
   ) {
     Column(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 22.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      // Top header row: Spatial telemetry badge + Language Switcher
+      // Top header row: Spatial telemetry badge
       Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Surface(
@@ -346,19 +435,14 @@ private fun LoginAuthCard(
             )
           }
         }
-
-        LanguageSelectorBar(
-          selectedLanguage = lang,
-          onSelect = onLanguageSelected,
-        )
       }
 
-      Spacer(modifier = Modifier.height(14.dp))
+      Spacer(modifier = Modifier.height(12.dp))
 
       // Official Fellah Numérique Hero Logo Emblem
       Surface(
         modifier =
-          Modifier.size(92.dp)
+          Modifier.size(86.dp)
             .border(
               width = 1.dp,
               color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
@@ -377,7 +461,7 @@ private fun LoginAuthCard(
         )
       }
 
-      Spacer(modifier = Modifier.height(12.dp))
+      Spacer(modifier = Modifier.height(10.dp))
 
       // Portal badge
       Surface(
@@ -404,26 +488,26 @@ private fun LoginAuthCard(
         }
       }
 
-      Spacer(modifier = Modifier.height(14.dp))
+      Spacer(modifier = Modifier.height(12.dp))
 
       Text(
         text = titleText,
-        style = MaterialTheme.typography.headlineMedium,
+        style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight.ExtraBold,
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = TextAlign.Center,
       )
 
-      Spacer(modifier = Modifier.height(8.dp))
+      Spacer(modifier = Modifier.height(6.dp))
 
       Text(
         text = subtitleText,
-        style = MaterialTheme.typography.bodyMedium,
+        style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
       )
 
-      Spacer(modifier = Modifier.height(18.dp))
+      Spacer(modifier = Modifier.height(14.dp))
 
       // Agrological capabilities pills
       FlowRow(
@@ -467,14 +551,59 @@ private fun LoginAuthCard(
               AppLanguage.EN -> "Public Market"
             },
         )
+        CapabilityChip(
+          icon = Icons.Filled.Lock,
+          label =
+            when (lang) {
+              AppLanguage.AR -> "مسح بطاقة التعريف وبطاقة الفلاح"
+              AppLanguage.FR -> "Scan CNI & Carte Fellah"
+              AppLanguage.EN -> "ID & Farmer Card Scan"
+            },
+        )
       }
 
-      Spacer(modifier = Modifier.height(22.dp))
+      Spacer(modifier = Modifier.height(18.dp))
+
+      // Segmented Entry Method Selector: Phone + SMS OTP vs Google Account
+      Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier =
+          Modifier.fillMaxWidth()
+            .border(
+              width = 1.dp,
+              color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+              shape = RoundedCornerShape(14.dp),
+            )
+            .testTag("auth_method_selector"),
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth().padding(4.dp),
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          AuthMethodTabButton(
+            selected = uiState.selectedAuthMethod == AuthEntryMethod.PHONE_OTP,
+            icon = Icons.Filled.PhoneAndroid,
+            label = phoneTabLabel,
+            onClick = { onAuthMethodSelected(AuthEntryMethod.PHONE_OTP) },
+            modifier = Modifier.weight(1f).testTag("auth_method_phone_tab"),
+          )
+          AuthMethodTabButton(
+            selected = uiState.selectedAuthMethod == AuthEntryMethod.GOOGLE,
+            icon = null,
+            label = googleTabLabel,
+            onClick = { onAuthMethodSelected(AuthEntryMethod.GOOGLE) },
+            modifier = Modifier.weight(1f).testTag("auth_method_google_tab"),
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(14.dp))
 
       // Feedback states (Checking session, Cancelled, or Error)
       AnimatedVisibility(visible = uiState.status is LoginAuthStatus.CheckingSavedSession) {
         Surface(
-          modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
           shape = RoundedCornerShape(14.dp),
           color = MaterialTheme.colorScheme.surfaceContainerLow,
         ) {
@@ -501,7 +630,7 @@ private fun LoginAuthCard(
         Surface(
           modifier =
             Modifier.fillMaxWidth()
-              .padding(bottom = 14.dp)
+              .padding(bottom = 12.dp)
               .testTag("login_cancelled_banner"),
           shape = RoundedCornerShape(14.dp),
           color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f),
@@ -551,7 +680,7 @@ private fun LoginAuthCard(
         Surface(
           modifier =
             Modifier.fillMaxWidth()
-              .padding(bottom = 14.dp)
+              .padding(bottom = 12.dp)
               .testTag("login_error_banner"),
           shape = RoundedCornerShape(14.dp),
           color = MaterialTheme.colorScheme.errorContainer,
@@ -577,42 +706,96 @@ private fun LoginAuthCard(
         }
       }
 
-      // Primary Google Sign-In CTA via Jetpack CredentialManager
+      // Phone + SMS OTP Registration & Login Section
+      AnimatedVisibility(visible = uiState.selectedAuthMethod == AuthEntryMethod.PHONE_OTP) {
+        PhoneOtpAuthSection(
+          uiState = uiState,
+          onPhoneInputChanged = onPhoneInputChanged,
+          onOtpCodeChanged = onOtpCodeChanged,
+          onSendPhoneCodeClick = onSendPhoneCodeClick,
+          onVerifyPhoneCodeClick = onVerifyPhoneCodeClick,
+          onResendPhoneCodeClick = onResendPhoneCodeClick,
+          onEditPhoneNumberClick = onEditPhoneNumberClick,
+        )
+      }
+
+      if (uiState.selectedAuthMethod == AuthEntryMethod.PHONE_OTP) {
+        Spacer(modifier = Modifier.height(14.dp))
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+          HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+          )
+          Text(
+            text =
+              when (lang) {
+                AppLanguage.AR -> "أو عبر حساب Google"
+                AppLanguage.FR -> "OU AVEC GOOGLE"
+                AppLanguage.EN -> "OR WITH GOOGLE"
+              },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+          )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+      }
+
+      // Google Sign-In CTA via Jetpack CredentialManager (always accessible!)
+      val isGooglePrimary = uiState.selectedAuthMethod == AuthEntryMethod.GOOGLE
       Button(
         onClick = onSignInClick,
         enabled = !uiState.isBusy,
         modifier =
           Modifier.fillMaxWidth()
-            .height(56.dp)
+            .height(if (isGooglePrimary) 56.dp else 50.dp)
             .testTag("login_button"),
         shape = RoundedCornerShape(14.dp),
         colors =
-          ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-          ),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
+          if (isGooglePrimary) {
+            ButtonDefaults.buttonColors(
+              containerColor = MaterialTheme.colorScheme.primary,
+              contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
+          } else {
+            ButtonDefaults.buttonColors(
+              containerColor = MaterialTheme.colorScheme.secondaryContainer,
+              contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+          },
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = if (isGooglePrimary) 2.dp else 0.dp),
       ) {
         if (uiState.status is LoginAuthStatus.SigningIn) {
           CircularProgressIndicator(
             modifier = Modifier.size(22.dp).testTag("login_loading_indicator"),
-            color = MaterialTheme.colorScheme.onPrimary,
+            color =
+              if (isGooglePrimary) MaterialTheme.colorScheme.onPrimary
+              else MaterialTheme.colorScheme.onSecondaryContainer,
             strokeWidth = 2.5.dp,
           )
         } else {
           Surface(
-            modifier = Modifier.size(30.dp),
+            modifier = Modifier.size(28.dp),
             shape = CircleShape,
             color = Color.White,
           ) {
             Box(contentAlignment = Alignment.Center) {
-              GoogleLogoEmblem(modifier = Modifier.size(18.dp))
+              GoogleLogoEmblem(modifier = Modifier.size(17.dp))
             }
           }
-          Spacer(modifier = Modifier.width(12.dp))
+          Spacer(modifier = Modifier.width(10.dp))
           Text(
             text = buttonText,
-            style = MaterialTheme.typography.titleMedium,
+            style =
+              if (isGooglePrimary) MaterialTheme.typography.titleMedium
+              else MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
           )
         }
@@ -651,7 +834,7 @@ private fun LoginAuthCard(
 
       Spacer(modifier = Modifier.height(16.dp))
       HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-      Spacer(modifier = Modifier.height(14.dp))
+      Spacer(modifier = Modifier.height(12.dp))
 
       Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -675,44 +858,331 @@ private fun LoginAuthCard(
 }
 
 @Composable
-private fun LanguageSelectorBar(
-  selectedLanguage: AppLanguage,
-  onSelect: (AppLanguage) -> Unit,
+private fun AuthMethodTabButton(
+  selected: Boolean,
+  icon: ImageVector?,
+  label: String,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
   Surface(
-    shape = RoundedCornerShape(12.dp),
-    color = MaterialTheme.colorScheme.surfaceContainer,
+    shape = RoundedCornerShape(11.dp),
+    color =
+      if (selected) MaterialTheme.colorScheme.primary
+      else Color.Transparent,
+    modifier =
+      modifier
+        .height(48.dp)
+        .semantics {
+          this.role = Role.Tab
+          this.selected = selected
+        }
+        .clickable(onClick = onClick),
   ) {
     Row(
-      modifier = Modifier.padding(3.dp),
-      horizontalArrangement = Arrangement.spacedBy(2.dp),
+      modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+      horizontalArrangement = Arrangement.Center,
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      AppLanguage.entries.forEach { lang ->
-        val selected = lang == selectedLanguage
-        Box(
-          modifier =
-            Modifier.minimumInteractiveComponentSize()
-              .clip(RoundedCornerShape(9.dp))
-              .background(
-                if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
-              )
-              .clickable { onSelect(lang) }
-              .padding(horizontal = 10.dp, vertical = 6.dp)
-              .testTag("login_lang_${lang.code}"),
-          contentAlignment = Alignment.Center,
+      if (icon != null) {
+        Icon(
+          imageVector = icon,
+          contentDescription = null,
+          tint =
+            if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.size(17.dp),
+        )
+      } else {
+        Surface(
+          modifier = Modifier.size(20.dp),
+          shape = CircleShape,
+          color = Color.White,
         ) {
+          Box(contentAlignment = Alignment.Center) {
+            GoogleLogoEmblem(modifier = Modifier.size(13.dp))
+          }
+        }
+      }
+      Spacer(modifier = Modifier.width(6.dp))
+      Text(
+        text = label,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        color =
+          if (selected) MaterialTheme.colorScheme.onPrimary
+          else MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  }
+}
+
+@Composable
+private fun PhoneOtpAuthSection(
+  uiState: LoginUiState,
+  onPhoneInputChanged: (String) -> Unit,
+  onOtpCodeChanged: (String) -> Unit,
+  onSendPhoneCodeClick: () -> Unit,
+  onVerifyPhoneCodeClick: () -> Unit,
+  onResendPhoneCodeClick: () -> Unit,
+  onEditPhoneNumberClick: () -> Unit,
+) {
+  val lang = uiState.language
+  Surface(
+    shape = RoundedCornerShape(18.dp),
+    color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f),
+    modifier =
+      Modifier.fillMaxWidth()
+        .border(
+          width = 1.dp,
+          color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+          shape = RoundedCornerShape(18.dp),
+        )
+        .testTag("phone_auth_section"),
+  ) {
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(14.dp),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      when (uiState.phoneStep) {
+        PhoneOtpStep.ENTER_PHONE -> {
+          val phoneLabel =
+            when (lang) {
+              AppLanguage.AR -> stringResource(R.string.phone_input_label_ar)
+              AppLanguage.FR -> stringResource(R.string.phone_input_label_fr)
+              AppLanguage.EN -> stringResource(R.string.phone_input_label_en)
+            }
+          val sendBtnLabel =
+            when (lang) {
+              AppLanguage.AR -> stringResource(R.string.phone_send_code_btn_ar)
+              AppLanguage.FR -> stringResource(R.string.phone_send_code_btn_fr)
+              AppLanguage.EN -> stringResource(R.string.phone_send_code_btn_en)
+            }
+          val helperLabel =
+            when (lang) {
+              AppLanguage.AR ->
+                "أدخل رقم هاتفك لتلقي رمز التأكيد (SMS)، وبعد تأكيد الرمز ستضيف البريد الإلكتروني وباقي البيانات."
+              AppLanguage.FR ->
+                "Saisissez votre mobile pour recevoir le code SMS, puis ajoutez votre e-mail et vos informations."
+              AppLanguage.EN ->
+                "Enter your phone number to receive a 6-digit SMS code, then add your email and profile details."
+            }
+
           Text(
-            text = lang.code,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color =
-              if (selected) {
-                MaterialTheme.colorScheme.onPrimary
-              } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-              },
+            text = helperLabel,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
+
+          OutlinedTextField(
+            value = uiState.phoneInput,
+            onValueChange = onPhoneInputChanged,
+            enabled = !uiState.isBusy,
+            singleLine = true,
+            label = { Text(phoneLabel) },
+            placeholder = { Text("0550123456") },
+            leadingIcon = {
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.padding(start = 8.dp),
+              ) {
+                Text(
+                  text = "+213",
+                  style = MaterialTheme.typography.labelMedium,
+                  fontWeight = FontWeight.Bold,
+                  color = MaterialTheme.colorScheme.onSecondaryContainer,
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+              }
+            },
+            textStyle =
+              TextStyle(
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                textDirection = TextDirection.Ltr,
+              ),
+            keyboardOptions =
+              KeyboardOptions(
+                keyboardType = KeyboardType.Phone,
+                imeAction = ImeAction.Send,
+              ),
+            keyboardActions = KeyboardActions(onSend = { onSendPhoneCodeClick() }),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().testTag("phone_number_input"),
+          )
+
+          Button(
+            onClick = onSendPhoneCodeClick,
+            enabled = !uiState.isBusy,
+            shape = RoundedCornerShape(12.dp),
+            modifier =
+              Modifier.fillMaxWidth()
+                .height(52.dp)
+                .testTag("send_phone_otp_button"),
+          ) {
+            if (uiState.status is LoginAuthStatus.SendingPhoneCode) {
+              CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = MaterialTheme.colorScheme.onPrimary,
+                strokeWidth = 2.dp,
+              )
+            } else {
+              Icon(
+                imageVector = Icons.Filled.Sms,
+                contentDescription = null,
+                modifier = Modifier.size(19.dp),
+              )
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                text = sendBtnLabel,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+              )
+            }
+          }
+        }
+
+        PhoneOtpStep.VERIFY_CODE -> {
+          val otpLabel =
+            when (lang) {
+              AppLanguage.AR -> stringResource(R.string.phone_otp_input_label_ar)
+              AppLanguage.FR -> stringResource(R.string.phone_otp_input_label_fr)
+              AppLanguage.EN -> stringResource(R.string.phone_otp_input_label_en)
+            }
+          val verifyBtnLabel =
+            when (lang) {
+              AppLanguage.AR -> stringResource(R.string.phone_verify_code_btn_ar)
+              AppLanguage.FR -> stringResource(R.string.phone_verify_code_btn_fr)
+              AppLanguage.EN -> stringResource(R.string.phone_verify_code_btn_en)
+            }
+          val resendLabel =
+            when (lang) {
+              AppLanguage.AR -> stringResource(R.string.phone_resend_code_btn_ar)
+              AppLanguage.FR -> stringResource(R.string.phone_resend_code_btn_fr)
+              AppLanguage.EN -> stringResource(R.string.phone_resend_code_btn_en)
+            }
+          val changeNumLabel =
+            when (lang) {
+              AppLanguage.AR -> stringResource(R.string.phone_change_number_btn_ar)
+              AppLanguage.FR -> stringResource(R.string.phone_change_number_btn_fr)
+              AppLanguage.EN -> stringResource(R.string.phone_change_number_btn_en)
+            }
+
+          Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier.fillMaxWidth().testTag("otp_sent_target_banner"),
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+              )
+              Text(
+                text =
+                  when (lang) {
+                    AppLanguage.AR -> "تم إرسال رمز الدخول إلى: ${uiState.normalizedPhone}"
+                    AppLanguage.FR -> "Code SMS envoyé au : ${uiState.normalizedPhone}"
+                    AppLanguage.EN -> "SMS code sent to: ${uiState.normalizedPhone}"
+                  },
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+              )
+            }
+          }
+
+          OutlinedTextField(
+            value = uiState.otpCodeInput,
+            onValueChange = onOtpCodeChanged,
+            enabled = !uiState.isBusy,
+            singleLine = true,
+            label = { Text(otpLabel) },
+            placeholder = { Text("123456") },
+            textStyle =
+              TextStyle(
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 6.sp,
+                textAlign = TextAlign.Center,
+                textDirection = TextDirection.Ltr,
+              ),
+            keyboardOptions =
+              KeyboardOptions(
+                keyboardType = KeyboardType.NumberPassword,
+                imeAction = ImeAction.Done,
+              ),
+            keyboardActions = KeyboardActions(onDone = { onVerifyPhoneCodeClick() }),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().testTag("phone_otp_code_input"),
+          )
+
+          Button(
+            onClick = onVerifyPhoneCodeClick,
+            enabled = !uiState.isBusy,
+            shape = RoundedCornerShape(12.dp),
+            modifier =
+              Modifier.fillMaxWidth()
+                .height(52.dp)
+                .testTag("verify_phone_otp_button"),
+          ) {
+            if (uiState.status is LoginAuthStatus.VerifyingPhoneCode) {
+              CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = MaterialTheme.colorScheme.onPrimary,
+                strokeWidth = 2.dp,
+              )
+            } else {
+              Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(19.dp),
+              )
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                text = verifyBtnLabel,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+              )
+            }
+          }
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            TextButton(
+              onClick = onEditPhoneNumberClick,
+              enabled = !uiState.isBusy,
+              modifier = Modifier.height(48.dp).testTag("change_phone_number_button"),
+            ) {
+              Text(
+                text = changeNumLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            TextButton(
+              onClick = onResendPhoneCodeClick,
+              enabled = !uiState.isBusy,
+              modifier = Modifier.height(48.dp).testTag("resend_phone_otp_button"),
+            ) {
+              Text(
+                text = resendLabel,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+              )
+            }
+          }
         }
       }
     }

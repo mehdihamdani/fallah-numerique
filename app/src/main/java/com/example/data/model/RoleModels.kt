@@ -337,6 +337,14 @@ data class UserAccountProfile(
   val defaultRole: String = "",
   val onboardingCompleted: Boolean = false,
   val onboardingStep: Int = 1,
+  val nationalIdScanned: Boolean = false,
+  val nationalIdNumber: String = "",
+  val nationalIdHolderName: String = "",
+  val farmerCardScanned: Boolean = false,
+  val farmerCardNumber: String = "",
+  val farmerCardWilaya: String = "",
+  val phoneNumber: String = "",
+  val phoneVerified: Boolean = false,
   @ServerTimestamp val createdAt: Timestamp? = null,
   @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
@@ -347,6 +355,73 @@ data class UserAccountProfile(
     UserRole.fromCodeOrNull(defaultRole)?.takeIf { role ->
       assignedRoles.contains(role.code)
     } ?: parsedAssignedRoles().firstOrNull()
+
+  fun toIdentityVerificationData(): IdentityVerificationData =
+    IdentityVerificationData(
+      nationalIdScanned = nationalIdScanned,
+      nationalIdNumber = nationalIdNumber,
+      nationalIdHolderName = nationalIdHolderName,
+      farmerCardScanned = farmerCardScanned,
+      farmerCardNumber = farmerCardNumber,
+      farmerCardWilaya = farmerCardWilaya,
+    )
+}
+
+object AccountInputValidator {
+  private val EMAIL_REGEX = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+
+  /**
+   * Normalizes Algerian mobile/landline numbers (`05...`, `06...`, `07...`, `213...`, `00213...`)
+   * or international `+...` inputs to clean E.164 format (`+213550123456`).
+   * Returns `null` if the phone number does not have valid digit count (8..15 digits).
+   */
+  fun normalizePhoneToE164(rawPhone: String, defaultDialCode: String = "+213"): String? {
+    val cleaned = rawPhone.trim().replace(Regex("[\\s\\-().]"), "")
+    if (cleaned.isEmpty()) return null
+
+    val e164 =
+      when {
+        cleaned.startsWith("+") -> "+" + cleaned.drop(1).filter { it.isDigit() }
+        cleaned.startsWith("00") -> "+" + cleaned.drop(2).filter { it.isDigit() }
+        cleaned.startsWith("213") && cleaned.length >= 11 -> "+" + cleaned.filter { it.isDigit() }
+        cleaned.startsWith("0") && cleaned.length in 9..11 ->
+          defaultDialCode + cleaned.drop(1).filter { it.isDigit() }
+        cleaned.all { it.isDigit() } && cleaned.length == 9 && cleaned.first() in listOf('5', '6', '7') ->
+          defaultDialCode + cleaned
+        else -> return null
+      }
+
+    val digitsOnly = e164.drop(1)
+    if (digitsOnly.length !in 8..15 || !digitsOnly.all { it.isDigit() }) {
+      return null
+    }
+    return e164.take(32)
+  }
+
+  fun isValidEmail(rawEmail: String): Boolean {
+    val trimmed = rawEmail.trim()
+    return trimmed.length in 5..160 && EMAIL_REGEX.matches(trimmed)
+  }
+}
+
+/**
+ * Owner-isolated identity & optional Chamber of Agriculture Farmer Card verification metadata.
+ */
+data class IdentityVerificationData(
+  val nationalIdScanned: Boolean = false,
+  val nationalIdNumber: String = "",
+  val nationalIdHolderName: String = "",
+  val farmerCardScanned: Boolean = false,
+  val farmerCardNumber: String = "",
+  val farmerCardWilaya: String = "",
+  val detectedFarmName: String = "",
+  val detectedSector: String = "",
+) {
+  val hasNationalId: Boolean
+    get() = nationalIdScanned || nationalIdNumber.isNotBlank()
+
+  val hasFarmerCard: Boolean
+    get() = farmerCardScanned || farmerCardNumber.isNotBlank()
 }
 
 @IgnoreExtraProperties
@@ -422,3 +497,146 @@ data class PlatformMessage(
   @ServerTimestamp val createdAt: Timestamp? = null,
   @ServerTimestamp val updatedAt: Timestamp? = null,
 )
+
+enum class FavoriteTargetType(
+  val code: String,
+  val labelAr: String,
+  val labelFr: String,
+  val labelEn: String,
+) {
+  OPERATOR("operator", "مستخدم / متعامل", "Opérateur", "Operator"),
+  MARKET_LISTING("market_listing", "محصول فلاحي", "Récolte", "Harvest Listing"),
+  PARTNER_ITEM("partner_item", "عرض شريك / خدمة", "Offre Partenaire", "Partner Offer");
+
+  fun localizedLabel(language: AppLanguage): String =
+    when (language) {
+      AppLanguage.AR -> labelAr
+      AppLanguage.FR -> labelFr
+      AppLanguage.EN -> labelEn
+    }
+
+  companion object {
+    fun fromCode(code: String?): FavoriteTargetType =
+      entries.firstOrNull { it.code == code?.trim()?.lowercase() } ?: OPERATOR
+  }
+}
+
+@IgnoreExtraProperties
+data class UserRatingRecord(
+  @DocumentId val id: String = "",
+  val reviewerId: String = "",
+  val reviewerName: String = "",
+  val reviewerRole: String = "farmer",
+  val targetUserId: String = "",
+  val targetName: String = "",
+  val targetRole: String = "farmer",
+  val stars: Int = 5,
+  val pointsAwarded: Int = 100,
+  val comment: String = "",
+  val contextItemId: String = "",
+  val status: String = "published",
+  @ServerTimestamp val createdAt: Timestamp? = null,
+  @ServerTimestamp val updatedAt: Timestamp? = null,
+)
+
+/**
+ * Aggregated star rating (1.0..5.0) and reputation points (0..100) for an operator.
+ */
+data class UserReputationSummary(
+  val targetUserId: String,
+  val averageStars: Double = 0.0,
+  val totalRatings: Int = 0,
+  val trustPointsOutOf100: Int = 0,
+  val totalPointsAccumulated: Int = 0,
+  val recentReviews: List<UserRatingRecord> = emptyList(),
+) {
+  val hasRatings: Boolean
+    get() = totalRatings > 0
+
+  fun formattedAverageStars(): String =
+    if (totalRatings == 0) "—" else String.format(java.util.Locale.US, "%.1f", averageStars)
+
+  fun tierLabel(language: AppLanguage): String =
+    when {
+      totalRatings == 0 ->
+        when (language) {
+          AppLanguage.AR -> "متعامل جديد"
+          AppLanguage.FR -> "Nouvel opérateur"
+          AppLanguage.EN -> "New operator"
+        }
+      trustPointsOutOf100 >= 90 ->
+        when (language) {
+          AppLanguage.AR -> "نخبة موثوقة"
+          AppLanguage.FR -> "Élite vérifiée"
+          AppLanguage.EN -> "Top Rated"
+        }
+      trustPointsOutOf100 >= 75 ->
+        when (language) {
+          AppLanguage.AR -> "موثوق جداً"
+          AppLanguage.FR -> "Très fiable"
+          AppLanguage.EN -> "Trusted"
+        }
+      else ->
+        when (language) {
+          AppLanguage.AR -> "متعامل نشط"
+          AppLanguage.FR -> "Opérateur actif"
+          AppLanguage.EN -> "Active"
+        }
+    }
+
+  companion object {
+    fun fromRatings(targetUserId: String, ratings: List<UserRatingRecord>): UserReputationSummary {
+      val matching =
+        ratings
+          .filter { it.targetUserId == targetUserId && it.status == "published" && it.stars in 1..5 }
+          .sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
+      if (matching.isEmpty()) {
+        return UserReputationSummary(targetUserId = targetUserId)
+      }
+      val avgStars = matching.map { it.stars }.average()
+      val avgPoints = kotlin.math.round(avgStars * 20.0).toInt().coerceIn(20, 100)
+      val accumulated = matching.sumOf { it.pointsAwarded.coerceAtLeast(it.stars * 20) }
+      return UserReputationSummary(
+        targetUserId = targetUserId,
+        averageStars = avgStars,
+        totalRatings = matching.size,
+        trustPointsOutOf100 = avgPoints,
+        totalPointsAccumulated = accumulated,
+        recentReviews = matching.take(10),
+      )
+    }
+
+    fun buildReputationMap(ratings: List<UserRatingRecord>): Map<String, UserReputationSummary> {
+      return ratings
+        .filter { it.status == "published" && it.targetUserId.isNotBlank() && it.stars in 1..5 }
+        .groupBy { it.targetUserId }
+        .mapValues { (uid, list) -> fromRatings(uid, list) }
+    }
+  }
+}
+
+@IgnoreExtraProperties
+data class UserFavoriteRecord(
+  @DocumentId val id: String = "",
+  val userId: String = "",
+  val favoriteType: String = FavoriteTargetType.OPERATOR.code,
+  val targetId: String = "",
+  val targetOwnerId: String = "",
+  val targetTitle: String = "",
+  val targetSubtitle: String = "",
+  val targetRole: String = "farmer",
+  @ServerTimestamp val createdAt: Timestamp? = null,
+  @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+  companion object {
+    fun sanitizeKeySegment(raw: String): String =
+      raw.trim().replace(Regex("[^a-zA-Z0-9_\\-]"), "_").take(56)
+
+    fun compositeDocumentId(userId: String, favoriteType: FavoriteTargetType, targetId: String): String {
+      val safeUid = sanitizeKeySegment(userId)
+      val safeTarget = sanitizeKeySegment(targetId)
+      return "${safeUid}_${favoriteType.code}_$safeTarget"
+    }
+  }
+}
+

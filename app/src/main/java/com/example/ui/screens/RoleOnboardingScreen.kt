@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,12 +27,17 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -72,18 +78,26 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.ai.DocumentOcrScanner
+import com.example.data.ai.FirebaseAiDocumentScanner
+import com.example.data.model.AccountInputValidator
 import com.example.data.model.AppLanguage
+import com.example.data.model.IdentityVerificationData
 import com.example.data.model.RoleSpecificProfile
 import com.example.data.model.UserAccountProfile
 import com.example.data.model.UserRole
+import com.example.ui.components.IdentityDocumentScannerSection
 import com.example.util.RoleStrings
 
 /**
  * Progressive, resumable 4-step Multi-Role Onboarding Screen:
- * - Step 1: Welcome & multi-role explanation (AR / FR / EN)
+ * - Step 1: Welcome & National ID Card + optional Farmer Card (بطاقة الفلاح إن وجدت) OCR scan
  * - Step 2: Select 1..6 professional activities with clear visual states & accessible semantics
  * - Step 3: Default active role selection (auto-selected when 1 role chosen; explicit choice when >1)
  * - Step 4: Lightweight progressive profile setup per selected role (skippable via "Complete Later")
@@ -99,7 +113,7 @@ fun RoleOnboardingScreen(
   userEmail: String,
   isSaving: Boolean,
   errorMessage: String?,
-  onLanguageSelected: (AppLanguage) -> Unit,
+  onLanguageSelected: (AppLanguage) -> Unit = {},
   onSaveProgressDraft: (selectedRoles: List<String>, defaultRole: String, step: Int) -> Unit,
   onCompleteOnboarding: (
     selectedRoles: List<String>,
@@ -107,6 +121,50 @@ fun RoleOnboardingScreen(
     profilesToSave: List<RoleSpecificProfile>,
   ) -> Unit,
   onSignOut: () -> Unit,
+  documentScanner: DocumentOcrScanner = FirebaseAiDocumentScanner,
+  onSaveProgressDraftWithIdentity: (
+    (
+      selectedRoles: List<String>,
+      defaultRole: String,
+      step: Int,
+      identityVerification: IdentityVerificationData,
+    ) -> Unit
+  )? = null,
+  onCompleteOnboardingWithIdentity: (
+    (
+      selectedRoles: List<String>,
+      defaultRole: String,
+      profilesToSave: List<RoleSpecificProfile>,
+      identityVerification: IdentityVerificationData,
+    ) -> Unit
+  )? = null,
+  userPhoneNumber: String = "",
+  isPhoneVerifiedSession: Boolean =
+    userPhoneNumber.isNotBlank() || (existingAccount?.phoneVerified == true),
+  onSaveAccountDraft: (
+    (
+      displayName: String,
+      email: String,
+      phoneNumber: String,
+      phoneVerified: Boolean,
+      selectedRoles: List<String>,
+      defaultRole: String,
+      step: Int,
+      identityVerification: IdentityVerificationData,
+    ) -> Unit
+  )? = null,
+  onCompleteAccountOnboarding: (
+    (
+      displayName: String,
+      email: String,
+      phoneNumber: String,
+      phoneVerified: Boolean,
+      selectedRoles: List<String>,
+      defaultRole: String,
+      profilesToSave: List<RoleSpecificProfile>,
+      identityVerification: IdentityVerificationData,
+    ) -> Unit
+  )? = null,
 ) {
   val layoutDirection =
     if (language == AppLanguage.AR) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -136,6 +194,30 @@ fun RoleOnboardingScreen(
       )
     }
 
+  var fullNameDraft by
+    remember(existingAccount?.displayName, userDisplayName) {
+      mutableStateOf(
+        existingAccount?.displayName?.takeIf {
+          it.isNotBlank() && it != "Opérateur Fellah Numérique"
+        } ?: userDisplayName.takeIf { it != "Opérateur Fellah Numérique" }.orEmpty()
+      )
+    }
+
+  var emailDraft by
+    remember(existingAccount?.email, userEmail) {
+      mutableStateOf(existingAccount?.email?.takeIf { it.isNotBlank() } ?: userEmail)
+    }
+
+  var phoneDraft by
+    remember(existingAccount?.phoneNumber, userPhoneNumber) {
+      mutableStateOf(existingAccount?.phoneNumber?.takeIf { it.isNotBlank() } ?: userPhoneNumber)
+    }
+
+  var primaryWilayaDraft by
+    remember(existingAccount?.farmerCardWilaya) {
+      mutableStateOf(existingAccount?.farmerCardWilaya.orEmpty())
+    }
+
   // Lightweight progressive profile drafts keyed by roleCode
   val businessDrafts = remember { mutableStateMapOf<String, String>() }
   val wilayaDrafts = remember { mutableStateMapOf<String, String>() }
@@ -144,6 +226,72 @@ fun RoleOnboardingScreen(
 
   var activeProfileRoleTab by remember { mutableStateOf<String?>(null) }
   var localValidationError by remember { mutableStateOf<String?>(null) }
+  var showStep4ScannerExpanded by remember { mutableStateOf(false) }
+
+  var identityVerification by
+    remember(
+      existingAccount?.nationalIdScanned,
+      existingAccount?.nationalIdNumber,
+      existingAccount?.farmerCardScanned,
+      existingAccount?.farmerCardNumber,
+    ) {
+      mutableStateOf(
+        existingAccount?.toIdentityVerificationData()
+          ?: IdentityVerificationData(nationalIdHolderName = userDisplayName)
+      )
+    }
+
+  fun resolvedDisplayName(): String {
+    return fullNameDraft.trim().takeIf { it.isNotBlank() }
+      ?: identityVerification.nationalIdHolderName.trim().takeIf {
+        it.isNotBlank() && it != "Opérateur Fellah Numérique"
+      }
+      ?: userDisplayName.ifBlank { "Opérateur Fellah Numérique" }
+  }
+
+  fun resolvedNormalizedPhone(): String {
+    val raw = phoneDraft.trim()
+    if (raw.isBlank()) return ""
+    return AccountInputValidator.normalizePhoneToE164(raw) ?: raw.take(32)
+  }
+
+  fun dispatchSaveDraft(roles: List<String>, defRole: String, step: Int) {
+    if (onSaveAccountDraft != null) {
+      onSaveAccountDraft(
+        resolvedDisplayName(),
+        emailDraft.trim(),
+        resolvedNormalizedPhone(),
+        isPhoneVerifiedSession,
+        roles,
+        defRole,
+        step,
+        identityVerification,
+      )
+    } else if (onSaveProgressDraftWithIdentity != null) {
+      onSaveProgressDraftWithIdentity(roles, defRole, step, identityVerification)
+    } else {
+      onSaveProgressDraft(roles, defRole, step)
+    }
+  }
+
+  fun dispatchComplete(roles: List<String>, defRole: String, profiles: List<RoleSpecificProfile>) {
+    if (onCompleteAccountOnboarding != null) {
+      onCompleteAccountOnboarding(
+        resolvedDisplayName(),
+        emailDraft.trim(),
+        resolvedNormalizedPhone(),
+        isPhoneVerifiedSession,
+        roles,
+        defRole,
+        profiles,
+        identityVerification,
+      )
+    } else if (onCompleteOnboardingWithIdentity != null) {
+      onCompleteOnboardingWithIdentity(roles, defRole, profiles, identityVerification)
+    } else {
+      onCompleteOnboarding(roles, defRole, profiles)
+    }
+  }
 
   BackHandler(enabled = currentStep > 1) {
     currentStep = (currentStep - 1).coerceAtLeast(1)
@@ -207,36 +355,6 @@ fun RoleOnboardingScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
               ) {
-                Surface(
-                  shape = RoundedCornerShape(8.dp),
-                  color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                  Row(modifier = Modifier.padding(2.dp)) {
-                    AppLanguage.entries.forEach { lang ->
-                      val active = lang == language
-                      Box(
-                        modifier =
-                          Modifier.clip(RoundedCornerShape(6.dp))
-                            .background(
-                              if (active) MaterialTheme.colorScheme.primary else Color.Transparent
-                            )
-                            .clickable { onLanguageSelected(lang) }
-                            .padding(horizontal = 8.dp, vertical = 5.dp)
-                            .testTag("onboarding_lang_${lang.code}"),
-                      ) {
-                        Text(
-                          text = lang.code,
-                          style = MaterialTheme.typography.labelSmall,
-                          fontWeight = FontWeight.Bold,
-                          color =
-                            if (active) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                      }
-                    }
-                  }
-                }
-
                 IconButton(
                   onClick = onSignOut,
                   modifier = Modifier.size(48.dp).testTag("onboarding_sign_out_button"),
@@ -268,6 +386,7 @@ fun RoleOnboardingScreen(
           modifier =
             Modifier.fillMaxWidth()
               .widthIn(max = 760.dp)
+              .imePadding()
               .verticalScroll(rememberScrollState())
               .padding(horizontal = 20.dp, vertical = 20.dp),
           verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -290,7 +409,7 @@ fun RoleOnboardingScreen(
 
           when (currentStep) {
             1 -> {
-              // STEP 1: Welcome Screen (Exact Arabic, French, English prompt messages)
+              // STEP 1: Welcome Headline + Post-OTP Email & Account Details + Continue CTA
               Card(
                 shape = RoundedCornerShape(22.dp),
                 colors =
@@ -308,8 +427,17 @@ fun RoleOnboardingScreen(
                     shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.secondaryContainer,
                   ) {
+                    val headerIdentitySummary =
+                      buildString {
+                        append(resolvedDisplayName())
+                        val contactTag = emailDraft.ifBlank { phoneDraft }
+                        if (contactTag.isNotBlank()) {
+                          append(" • ")
+                          append(contactTag)
+                        }
+                      }
                     Text(
-                      text = "${userDisplayName.ifBlank { "Opérateur" }} • $userEmail",
+                      text = headerIdentitySummary,
                       style = MaterialTheme.typography.labelMedium,
                       fontWeight = FontWeight.Bold,
                       color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -331,7 +459,205 @@ fun RoleOnboardingScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                   )
 
-                  HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                  if (isPhoneVerifiedSession && phoneDraft.isNotBlank()) {
+                    Surface(
+                      shape = RoundedCornerShape(14.dp),
+                      color = MaterialTheme.colorScheme.secondaryContainer,
+                      modifier = Modifier.fillMaxWidth().testTag("verified_phone_banner"),
+                    ) {
+                      Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                      ) {
+                        Icon(
+                          imageVector = Icons.Filled.CheckCircle,
+                          contentDescription = null,
+                          tint = MaterialTheme.colorScheme.primary,
+                          modifier = Modifier.size(22.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                          Text(
+                            text =
+                              RoleStrings.tr(
+                                language,
+                                ar = "تم تأكيد رقم الهاتف ورمز الدخول بنجاح: $phoneDraft",
+                                fr = "Téléphone et code SMS confirmés : $phoneDraft",
+                                en = "Phone & SMS login code confirmed: $phoneDraft",
+                              ),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                          )
+                          Text(
+                            text =
+                              RoleStrings.tr(
+                                language,
+                                ar = "أضف الآن بريدك الإلكتروني وبياناتك الشخصية ثم اختر أنشطتك المهنية.",
+                                fr = "Ajoutez votre adresse e-mail et vos informations personnelles.",
+                                en = "Add your email address and personal details to continue.",
+                              ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color =
+                              MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
+                          )
+                        }
+                      }
+                    }
+                  }
+
+                  Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f),
+                    modifier = Modifier.fillMaxWidth().testTag("post_otp_account_details_card"),
+                  ) {
+                    Column(
+                      modifier = Modifier.fillMaxWidth().padding(16.dp),
+                      verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                      Text(
+                        text =
+                          when (language) {
+                            AppLanguage.AR -> stringResource(R.string.post_otp_details_title_ar)
+                            AppLanguage.FR -> stringResource(R.string.post_otp_details_title_fr)
+                            AppLanguage.EN -> stringResource(R.string.post_otp_details_title_en)
+                          },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                      )
+
+                      OutlinedTextField(
+                        value = emailDraft,
+                        onValueChange = {
+                          emailDraft = it.take(155)
+                          localValidationError = null
+                        },
+                        singleLine = true,
+                        label = {
+                          Text(
+                            RoleStrings.tr(
+                              language,
+                              ar = "البريد الإلكتروني (Email) *",
+                              fr = "Adresse e-mail *",
+                              en = "Email Address *",
+                            )
+                          )
+                        },
+                        placeholder = { Text("farmer@fellah.dz") },
+                        leadingIcon = {
+                          Icon(
+                            imageVector = Icons.Filled.Email,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                          )
+                        },
+                        textStyle = TextStyle(textDirection = TextDirection.Ltr),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("onboarding_email_input"),
+                      )
+
+                      OutlinedTextField(
+                        value = fullNameDraft,
+                        onValueChange = {
+                          fullNameDraft = it.take(115)
+                          localValidationError = null
+                        },
+                        singleLine = true,
+                        label = {
+                          Text(
+                            RoleStrings.tr(
+                              language,
+                              ar = "الاسم الكامل / اسم المتعامل *",
+                              fr = "Nom complet / Exploitant *",
+                              en = "Full Name / Operator Name *",
+                            )
+                          )
+                        },
+                        leadingIcon = {
+                          Icon(
+                            imageVector = Icons.Filled.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                          )
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("onboarding_full_name_input"),
+                      )
+
+                      Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                      ) {
+                        OutlinedTextField(
+                          value = phoneDraft,
+                          onValueChange = {
+                            if (!isPhoneVerifiedSession) {
+                              phoneDraft = it.take(24)
+                              localValidationError = null
+                            }
+                          },
+                          readOnly = isPhoneVerifiedSession && phoneDraft.isNotBlank(),
+                          singleLine = true,
+                          label = {
+                            Text(
+                              RoleStrings.tr(
+                                language,
+                                ar = if (isPhoneVerifiedSession) "الهاتف المؤكد ✓" else "رقم الهاتف",
+                                fr =
+                                  if (isPhoneVerifiedSession) "Téléphone vérifié ✓" else "Téléphone",
+                                en =
+                                  if (isPhoneVerifiedSession) "Verified Phone ✓" else "Phone Number",
+                              )
+                            )
+                          },
+                          leadingIcon = {
+                            Icon(
+                              imageVector = Icons.Filled.PhoneAndroid,
+                              contentDescription = null,
+                              tint = MaterialTheme.colorScheme.primary,
+                            )
+                          },
+                          textStyle = TextStyle(textDirection = TextDirection.Ltr),
+                          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                          shape = RoundedCornerShape(12.dp),
+                          modifier = Modifier.weight(1f).testTag("onboarding_phone_input"),
+                        )
+
+                        OutlinedTextField(
+                          value = primaryWilayaDraft,
+                          onValueChange = { primaryWilayaDraft = it.take(80) },
+                          singleLine = true,
+                          label = {
+                            Text(
+                              RoleStrings.tr(
+                                language,
+                                ar = "الولاية",
+                                fr = "Wilaya",
+                                en = "Wilaya",
+                              )
+                            )
+                          },
+                          placeholder = { Text("07 - بسكرة") },
+                          leadingIcon = {
+                            Icon(
+                              imageVector = Icons.Filled.LocationOn,
+                              contentDescription = null,
+                              tint = MaterialTheme.colorScheme.primary,
+                            )
+                          },
+                          shape = RoundedCornerShape(12.dp),
+                          modifier =
+                            Modifier.weight(1f).testTag("onboarding_primary_wilaya_input"),
+                        )
+                      }
+                    }
+                  }
+
+                  HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                  )
 
                   FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -365,9 +691,52 @@ fun RoleOnboardingScreen(
 
                   Button(
                     onClick = {
+                      val trimmedEmail = emailDraft.trim()
+                      val trimmedName = fullNameDraft.trim()
+                      val scannedHolder =
+                        identityVerification.nationalIdHolderName.trim().takeIf {
+                          it != "Opérateur Fellah Numérique"
+                        }.orEmpty()
+
+                      if (
+                        (isPhoneVerifiedSession && trimmedEmail.isBlank()) ||
+                          (trimmedEmail.isNotBlank() &&
+                            !AccountInputValidator.isValidEmail(trimmedEmail))
+                      ) {
+                        localValidationError =
+                          RoleStrings.tr(
+                            language,
+                            ar = "يرجى إدخال بريد إلكتروني صحيح للمتابعة وإكمال بيانات حسابك.",
+                            fr = "Veuillez saisir une adresse e-mail valide pour continuer.",
+                            en = "Please enter a valid email address to continue.",
+                          )
+                        return@Button
+                      }
+
+                      if (
+                        isPhoneVerifiedSession && trimmedName.isBlank() && scannedHolder.isBlank()
+                      ) {
+                        localValidationError =
+                          RoleStrings.tr(
+                            language,
+                            ar = "يرجى إدخال الاسم الكامل أو مسح بطاقة التعريف الوطنية للمتابعة.",
+                            fr = "Veuillez saisir votre nom complet ou scanner votre CNI.",
+                            en = "Please enter your full name or scan your National ID card.",
+                          )
+                        return@Button
+                      }
+
+                      if (primaryWilayaDraft.isNotBlank()) {
+                        UserRole.entries.forEach { role ->
+                          if (wilayaDrafts[role.code].isNullOrBlank()) {
+                            wilayaDrafts[role.code] = primaryWilayaDraft.trim()
+                          }
+                        }
+                      }
+
                       localValidationError = null
                       currentStep = 2
-                      onSaveProgressDraft(selectedRoles.toList(), chosenDefaultRole, 2)
+                      dispatchSaveDraft(selectedRoles.toList(), chosenDefaultRole, 2)
                     },
                     shape = RoundedCornerShape(12.dp),
                     modifier =
@@ -391,6 +760,48 @@ fun RoleOnboardingScreen(
                   }
                 }
               }
+
+              // Identity & Optional Farmer Card Scanner right on Registration Step 1
+              IdentityDocumentScannerSection(
+                language = language,
+                identityData = identityVerification,
+                onIdentityDataChanged = { updated ->
+                  identityVerification = updated
+                  if (
+                    (updated.farmerCardScanned || updated.farmerCardNumber.isNotBlank()) &&
+                      !selectedRoles.contains(UserRole.FARMER.code)
+                  ) {
+                    selectedRoles.add(0, UserRole.FARMER.code)
+                    if (chosenDefaultRole.isBlank()) {
+                      chosenDefaultRole = UserRole.FARMER.code
+                    }
+                  }
+                  if (
+                    updated.farmerCardWilaya.isNotBlank() &&
+                      wilayaDrafts[UserRole.FARMER.code].isNullOrBlank()
+                  ) {
+                    wilayaDrafts[UserRole.FARMER.code] = updated.farmerCardWilaya
+                  }
+                },
+                documentScanner = documentScanner,
+                onFarmerCardAutoPopulate = { wilaya, farmName, sector ->
+                  if (!selectedRoles.contains(UserRole.FARMER.code)) {
+                    selectedRoles.add(0, UserRole.FARMER.code)
+                  }
+                  if (chosenDefaultRole.isBlank()) {
+                    chosenDefaultRole = UserRole.FARMER.code
+                  }
+                  if (wilaya.isNotBlank()) {
+                    wilayaDrafts[UserRole.FARMER.code] = wilaya
+                  }
+                  if (farmName.isNotBlank()) {
+                    businessDrafts[UserRole.FARMER.code] = farmName
+                  }
+                  if (sector.isNotBlank()) {
+                    activityDrafts[UserRole.FARMER.code] = sector
+                  }
+                },
+              )
             }
 
             2 -> {
@@ -546,13 +957,13 @@ fun RoleOnboardingScreen(
                         chosenDefaultRole = normalized.first()
                         activeProfileRoleTab = chosenDefaultRole
                         currentStep = 4
-                        onSaveProgressDraft(normalized, chosenDefaultRole, 4)
+                        dispatchSaveDraft(normalized, chosenDefaultRole, 4)
                       } else {
                         if (chosenDefaultRole !in normalized) {
                           chosenDefaultRole = normalized.first()
                         }
                         currentStep = 3
-                        onSaveProgressDraft(normalized, chosenDefaultRole, 3)
+                        dispatchSaveDraft(normalized, chosenDefaultRole, 3)
                       }
                     }
                   },
@@ -690,7 +1101,7 @@ fun RoleOnboardingScreen(
                     chosenDefaultRole = effectiveDefault
                     activeProfileRoleTab = effectiveDefault
                     currentStep = 4
-                    onSaveProgressDraft(normalized, effectiveDefault, 4)
+                    dispatchSaveDraft(normalized, effectiveDefault, 4)
                   },
                   shape = RoundedCornerShape(12.dp),
                   modifier =
@@ -718,11 +1129,14 @@ fun RoleOnboardingScreen(
               val existingForFocused = existingRoleProfiles[focusedRole.code]
               val businessVal =
                 businessDrafts.getOrPut(focusedRole.code) {
-                  existingForFocused?.businessName?.takeIf { it.isNotBlank() } ?: userDisplayName
+                  existingForFocused?.businessName?.takeIf { it.isNotBlank() }
+                    ?: resolvedDisplayName()
                 }
               val wilayaVal =
                 wilayaDrafts.getOrPut(focusedRole.code) {
-                  existingForFocused?.wilaya?.takeIf { it.isNotBlank() } ?: "07 - بسكرة (Biskra)"
+                  existingForFocused?.wilaya?.takeIf { it.isNotBlank() }
+                    ?: primaryWilayaDraft.trim().takeIf { it.isNotBlank() }
+                    ?: "07 - بسكرة (Biskra)"
                 }
               val activityVal =
                 activityDrafts.getOrPut(focusedRole.code) {
@@ -851,6 +1265,88 @@ fun RoleOnboardingScreen(
                 }
               }
 
+              // Summary / Quick Toggle for Identity & Optional Farmer Card in Step 4
+              Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth().testTag("onboarding_step4_identity_summary"),
+              ) {
+                Column(
+                  modifier = Modifier.fillMaxWidth().padding(14.dp),
+                  verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                      Text(
+                        text =
+                          RoleStrings.tr(
+                            language,
+                            ar = "حالة بطاقة التعريف الوطنية وبطاقة الفلاح (إن وجدت)",
+                            fr = "Statut CNI & Carte d'Agriculteur (optionnelle)",
+                            en = "National ID & Optional Farmer Card Status",
+                          ),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                      )
+                      Text(
+                        text =
+                          buildString {
+                            append(
+                              if (identityVerification.hasNationalId) {
+                                RoleStrings.tr(language, "بطاقة التعريف: مرفقة ✓", "CNI : Vérifiée ✓", "ID Card: Attached ✓")
+                              } else {
+                                RoleStrings.tr(language, "بطاقة التعريف: غير ممسوحة بعد", "CNI : Non scannée", "ID Card: Not scanned yet")
+                              }
+                            )
+                            append(" • ")
+                            append(
+                              if (identityVerification.hasFarmerCard) {
+                                RoleStrings.tr(language, "بطاقة الفلاح: مرفقة ✓", "Carte Fellah : Liée ✓", "Farmer Card: Linked ✓")
+                              } else {
+                                RoleStrings.tr(language, "بطاقة الفلاح: اختيارية", "Carte Fellah : Optionnelle", "Farmer Card: Optional")
+                              }
+                            )
+                          },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                    TextButton(
+                      onClick = { showStep4ScannerExpanded = !showStep4ScannerExpanded },
+                      modifier = Modifier.testTag("onboarding_step4_toggle_scanner_button"),
+                    ) {
+                      Text(
+                        RoleStrings.tr(
+                          language,
+                          ar = if (showStep4ScannerExpanded) "إخفاء الماسح" else "مسح / تعديل البطاقات",
+                          fr = if (showStep4ScannerExpanded) "Masquer" else "Scanner / Modifier",
+                          en = if (showStep4ScannerExpanded) "Hide Scanner" else "Scan / Edit Cards",
+                        ),
+                        fontWeight = FontWeight.Bold,
+                      )
+                    }
+                  }
+                }
+              }
+
+              if (showStep4ScannerExpanded) {
+                IdentityDocumentScannerSection(
+                  language = language,
+                  identityData = identityVerification,
+                  onIdentityDataChanged = { identityVerification = it },
+                  documentScanner = documentScanner,
+                  onFarmerCardAutoPopulate = { wilaya, farmName, sector ->
+                    if (wilaya.isNotBlank()) wilayaDrafts[focusedRole.code] = wilaya
+                    if (farmName.isNotBlank()) businessDrafts[focusedRole.code] = farmName
+                    if (sector.isNotBlank()) activityDrafts[focusedRole.code] = sector
+                  },
+                )
+              }
+
               Button(
                 onClick = {
                   val profiles =
@@ -862,8 +1358,11 @@ fun RoleOnboardingScreen(
                       if (bName.isNotBlank() || act.isNotBlank() || cap.isNotBlank()) {
                         RoleSpecificProfile(
                           roleCode = code,
-                          businessName = bName.ifBlank { userDisplayName },
-                          wilaya = wil.ifBlank { "07 - بسكرة (Biskra)" },
+                          businessName = bName.ifBlank { resolvedDisplayName() },
+                          wilaya =
+                            wil.ifBlank {
+                              primaryWilayaDraft.trim().ifBlank { "07 - بسكرة (Biskra)" }
+                            },
                           commune = "",
                           activityType = act,
                           capacityOrArea = cap,
@@ -873,7 +1372,7 @@ fun RoleOnboardingScreen(
                         null
                       }
                     }
-                  onCompleteOnboarding(normalized, effectiveDefault, profiles)
+                  dispatchComplete(normalized, effectiveDefault, profiles)
                 },
                 enabled = !isSaving,
                 shape = RoundedCornerShape(12.dp),
@@ -920,7 +1419,7 @@ fun RoleOnboardingScreen(
 
                 TextButton(
                   onClick = {
-                    onCompleteOnboarding(normalized, effectiveDefault, emptyList())
+                    dispatchComplete(normalized, effectiveDefault, emptyList())
                   },
                   enabled = !isSaving,
                   modifier = Modifier.height(48.dp).testTag("onboarding_skip_later_button"),

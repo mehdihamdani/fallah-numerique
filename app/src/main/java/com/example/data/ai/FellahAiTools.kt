@@ -270,11 +270,16 @@ object FellahAiToolExecutor {
     if (matchedListings.isNotEmpty()) {
       val formattedListings =
         matchedListings.take(5).map { item ->
-          val crop = CropVarietyType.fromCode(item.cropType)
+          val cropAr =
+            PromptSecurityGuard.sanitizeUntrustedPlatformText(
+              CropVarietyType.resolveDisplayTitleAr(item.cropType),
+              50,
+            )
+          val cropFr = CropVarietyType.resolveDisplaySubtitleFr(item.cropType)
           val safeOp = PromptSecurityGuard.sanitizeUntrustedPlatformText(item.operatorName, 60)
           val safeWilaya = PromptSecurityGuard.sanitizeUntrustedPlatformText(item.wilaya, 50)
           val tsLabel = formatTimestampUtc(item.updatedAt ?: item.createdAt)
-          "ID=${item.id} | Crop=${crop.titleAr} (${crop.subtitleFr}) | Price=${item.pricePerKgDzd} DZD/kg | Qty=${item.availableTons} T | Wilaya=$safeWilaya | Seller=$safeOp | VerifiedAt=$tsLabel"
+          "ID=${item.id} | Crop=$cropAr ($cropFr) | Price=${item.pricePerKgDzd} DZD/kg | Qty=${item.availableTons} T | Wilaya=$safeWilaya | Seller=$safeOp | VerifiedAt=$tsLabel"
         }
       sandboxLines += "[VERIFIED_MARKET_LISTINGS]\n" + formattedListings.joinToString("\n")
 
@@ -334,11 +339,15 @@ object FellahAiToolExecutor {
         UserRole.FARMER in snapshot.assignedRoles &&
         (parcel.userId.isBlank() || parcel.userId == snapshot.callerUserId)
     ) {
-      val crop = CropVarietyType.fromCode(parcel.mainCrop)
+      val cropAr =
+        PromptSecurityGuard.sanitizeUntrustedPlatformText(
+          CropVarietyType.resolveDisplayTitleAr(parcel.mainCrop, "غير محدد"),
+          50,
+        )
       val safeParcelName = PromptSecurityGuard.sanitizeUntrustedPlatformText(parcel.name, 60)
       val safeWilaya = PromptSecurityGuard.sanitizeUntrustedPlatformText(parcel.wilaya, 50)
       sandboxLines +=
-        "[AUTHORIZED_OWN_FARM_PARCEL] Name=$safeParcelName | Wilaya=$safeWilaya | Area=${parcel.areaHectares} Ha | Crop=${crop.titleAr} | SoilTexture=${parcel.soilTexture} | pH=${parcel.soilPh} | SalinityEC=${parcel.salinityEc} dS/m | NDVI=${parcel.ndviScore} | EstYield=${parcel.estimatedYieldTonsPerHa} T/Ha"
+        "[AUTHORIZED_OWN_FARM_PARCEL] Name=$safeParcelName | Wilaya=$safeWilaya | Area=${parcel.areaHectares} Ha | Crop=$cropAr | SoilTexture=${parcel.soilTexture} | pH=${parcel.soilPh} | SalinityEC=${parcel.salinityEc} dS/m | NDVI=${parcel.ndviScore} | EstYield=${parcel.estimatedYieldTonsPerHa} T/Ha"
     }
 
     val weather = snapshot.verifiedWeatherReport
@@ -377,9 +386,12 @@ object FellahAiToolExecutor {
     if (listings.isEmpty()) return emptyList()
     val filtered =
       listings.filter { item ->
-        val crop = CropVarietyType.fromCode(item.cropType)
-        qLower.contains(crop.titleAr.lowercase(Locale.ROOT)) ||
-          qLower.contains(crop.subtitleFr.lowercase(Locale.ROOT)) ||
+        val cropAr = CropVarietyType.resolveDisplayTitleAr(item.cropType).lowercase(Locale.ROOT)
+        val cropFr = CropVarietyType.resolveDisplaySubtitleFr(item.cropType).lowercase(Locale.ROOT)
+        val rawCropLower = item.cropType.trim().lowercase(Locale.ROOT)
+        (rawCropLower.isNotEmpty() && qLower.contains(rawCropLower)) ||
+          qLower.contains(cropAr) ||
+          qLower.contains(cropFr) ||
           qLower.contains(item.wilaya.lowercase(Locale.ROOT)) ||
           (qLower.contains("بطاطا") && item.cropType == "pomme_de_terre") ||
           (qLower.contains("pomme") && item.cropType == "pomme_de_terre") ||

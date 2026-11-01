@@ -102,14 +102,18 @@ interface CachedNewsArticleDao {
   entities = [
     OfflineMapRegionEntity::class,
     CachedNewsArticleEntity::class,
+    SavedPlotEntity::class,
+    SavedPlotCoordinateEntity::class,
   ],
-  version = 2,
+  version = 3,
   exportSchema = false,
 )
 abstract class FellahOfflineDatabase : RoomDatabase() {
   abstract fun offlineMapRegionDao(): OfflineMapRegionDao
 
   abstract fun cachedNewsArticleDao(): CachedNewsArticleDao
+
+  abstract fun savedPlotDao(): SavedPlotDao
 
   companion object {
     @Volatile private var instance: FellahOfflineDatabase? = null
@@ -150,6 +154,65 @@ abstract class FellahOfflineDatabase : RoomDatabase() {
         }
       }
 
+    /**
+     * Non-destructive SQLite schema migration (v2 -> v3) adding `saved_plots` and
+     * `saved_plot_coordinates` tables while preserving all offline map regions and cached news.
+     */
+    val MIGRATION_2_3: androidx.room.migration.Migration =
+      object : androidx.room.migration.Migration(2, 3) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+          db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `saved_plots` (
+              `localId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+              `cloudParcelId` TEXT NOT NULL,
+              `plotName` TEXT NOT NULL,
+              `ilotReference` TEXT NOT NULL,
+              `wilaya` TEXT NOT NULL,
+              `commune` TEXT NOT NULL,
+              `mainCrop` TEXT NOT NULL,
+              `areaHectares` REAL NOT NULL,
+              `areaSquareMeters` REAL NOT NULL,
+              `perimeterMeters` REAL NOT NULL,
+              `vertexCount` INTEGER NOT NULL,
+              `centroidLatitude` REAL NOT NULL,
+              `centroidLongitude` REAL NOT NULL,
+              `boreholeLatitude` REAL NOT NULL,
+              `boreholeLongitude` REAL NOT NULL,
+              `coordinatesLabel` TEXT NOT NULL,
+              `createdAtMillis` INTEGER NOT NULL,
+              `updatedAtMillis` INTEGER NOT NULL
+            )
+            """.trimIndent()
+          )
+          db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_saved_plots_updatedAtMillis` ON `saved_plots` (`updatedAtMillis`)"
+          )
+          db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_saved_plots_plotName` ON `saved_plots` (`plotName`)"
+          )
+          db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_saved_plots_cloudParcelId` ON `saved_plots` (`cloudParcelId`)"
+          )
+
+          db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `saved_plot_coordinates` (
+              `coordinateId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+              `plotLocalId` INTEGER NOT NULL,
+              `vertexOrder` INTEGER NOT NULL,
+              `latitude` REAL NOT NULL,
+              `longitude` REAL NOT NULL,
+              FOREIGN KEY(`plotLocalId`) REFERENCES `saved_plots`(`localId`) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent()
+          )
+          db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_saved_plot_coordinates_plotLocalId` ON `saved_plot_coordinates` (`plotLocalId`)"
+          )
+        }
+      }
+
     fun getInstance(context: Context): FellahOfflineDatabase {
       return instance
         ?: synchronized(this) {
@@ -159,7 +222,9 @@ abstract class FellahOfflineDatabase : RoomDatabase() {
                 FellahOfflineDatabase::class.java,
                 "fellah_offline_maps_cache.db",
               )
-              .addMigrations(MIGRATION_1_2)
+              .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+              .fallbackToDestructiveMigration(dropAllTables = true)
+              .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
               .build()
               .also { instance = it }
         }

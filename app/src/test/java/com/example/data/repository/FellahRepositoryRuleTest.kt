@@ -180,6 +180,71 @@ class FellahRepositoryRuleTest : FirestoreEmulatorTestBase() {
     assertTrue(bookings.any { it.id == bookingId })
   }
 
+  @Test
+  fun saveParcel_withBlankAndCustomMainCrop_andPublishCustomCropListing_succeeds() = runBlocking {
+    val aliceUid = signInTestUser(ALICE_EMAIL)
+    val repository = FellahRepository(firestore, auth)
+
+    // 1. Default new parcel starts with empty mainCrop ("") and must pass Firestore rules
+    val blankCropParcel = AgriculturalParcel(name = "قطعة جديدة بدون محصول محدد", mainCrop = "")
+    val createRes = withTimeout(DEFAULT_TIMEOUT_MS) { repository.saveParcel(blankCropParcel) }
+    assertTrue(
+      "Expected saveParcel with empty mainCrop to succeed: ${createRes.exceptionOrNull()}",
+      createRes.isSuccess,
+    )
+    val parcelId = createRes.getOrThrow()
+
+    val savedBlank =
+      withTimeout(DEFAULT_TIMEOUT_MS) { repository.getParcelById(parcelId).getOrThrow() }
+    assertEquals("", savedBlank.mainCrop)
+
+    // 2. Farmer enters their own custom crop/product ("قمح صلب وبقوليات خاصة")
+    val customProduct = "قمح صلب وبقوليات خاصة"
+    val updateRes =
+      withTimeout(DEFAULT_TIMEOUT_MS) {
+        repository.saveParcel(savedBlank.copy(mainCrop = customProduct))
+      }
+    assertTrue(
+      "Expected saveParcel with custom mainCrop to succeed: ${updateRes.exceptionOrNull()}",
+      updateRes.isSuccess,
+    )
+
+    val savedCustom =
+      withTimeout(FLOW_TIMEOUT_MS) {
+        repository.observeUserParcels(aliceUid).first { list ->
+          list.any { it.id == parcelId && it.mainCrop == customProduct }
+        }
+      }
+    assertEquals(customProduct, savedCustom.first { it.id == parcelId }.mainCrop)
+
+    // 3. Farmer publishes custom crop to marketplace
+    val customListingRes =
+      withTimeout(DEFAULT_TIMEOUT_MS) {
+        repository.publishMarketListing(
+          MarketListing(
+            parcelId = parcelId,
+            operatorName = "مزرعة الأمل",
+            parcelReference = savedBlank.ilotNumber,
+            cropType = customProduct,
+            wilaya = savedBlank.wilaya,
+            availableTons = 12.5,
+            pricePerKgDzd = 135.0,
+          )
+        )
+      }
+    assertTrue(
+      "Expected publishMarketListing with custom cropType to succeed: ${customListingRes.exceptionOrNull()}",
+      customListingRes.isSuccess,
+    )
+    val listingId = customListingRes.getOrThrow()
+
+    val activeListings =
+      withTimeout(FLOW_TIMEOUT_MS) {
+        repository.observeActiveMarketListings().first { list -> list.any { it.id == listingId } }
+      }
+    assertEquals(customProduct, activeListings.first { it.id == listingId }.cropType)
+  }
+
   private companion object {
     const val ALICE_EMAIL = "alice.farmer@fellah.dz"
     const val BOB_EMAIL = "bob.farmer@fellah.dz"

@@ -3,13 +3,15 @@ package com.example.util
 import com.example.data.model.NormalizedPoint
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Bijective WGS84 geographic projection utility converting between parcel-relative
  * [NormalizedPoint] ([0.02..0.98] inside a 420m × 320m agronomic frame) and real-world
- * WGS84 [GeoLatLng] coordinates, plus spherical geodesy surface calculation.
+ * WGS84 [GeoLatLng] coordinates, plus spherical geodesy surface & perimeter calculation.
  * Operates completely without any proprietary API key dependency.
  */
 object GeoCoordinateMapper {
@@ -88,6 +90,68 @@ object GeoCoordinateMapper {
     )
   }
 
+  /**
+   * Encodes an exact WGS84 coordinate compactly (`<= 28` chars) so Firestore parcel points preserve
+   * sub-meter geographic precision across any zoom level or basin in Algeria.
+   */
+  fun encodeGeoPoint(latLng: GeoLatLng): String {
+    return String.format(
+      Locale.US,
+      "geo:%.6f,%.6f",
+      latLng.latitude.coerceIn(-90.0, 90.0),
+      latLng.longitude.coerceIn(-180.0, 180.0),
+    )
+  }
+
+  fun decodePointToLatLng(raw: String, center: GeoCenter): GeoLatLng {
+    val trimmed = raw.trim()
+    if (trimmed.startsWith("geo:")) {
+      val parts = trimmed.removePrefix("geo:").split(",")
+      val lat = parts.getOrNull(0)?.toDoubleOrNull()
+      val lng = parts.getOrNull(1)?.toDoubleOrNull()
+      if (lat != null && lng != null && lat in -90.0..90.0 && lng in -180.0..180.0) {
+        return GeoLatLng(lat, lng)
+      }
+    }
+    return normalizedToLatLng(NormalizedPoint.decode(trimmed), center)
+  }
+
+  fun decodePolygonToLatLng(rawPoints: List<String>, center: GeoCenter): List<GeoLatLng> {
+    return rawPoints.map { decodePointToLatLng(it, center) }
+  }
+
+  /**
+   * Decodes polygon points into [NormalizedPoint]s for vector canvas / PDF rendering while keeping
+   * aspect ratio true for exact `"geo:lat,lng"` points drawn on Osmdroid.
+   */
+  fun decodePolygonToNormalized(rawPoints: List<String>, center: GeoCenter): List<NormalizedPoint> {
+    if (rawPoints.isEmpty()) return emptyList()
+    if (rawPoints.none { it.trim().startsWith("geo:") }) {
+      return rawPoints.map { NormalizedPoint.decode(it) }
+    }
+    val latLngs = decodePolygonToLatLng(rawPoints, center)
+    if (latLngs.size == 1) return listOf(NormalizedPoint(0.5f, 0.5f))
+
+    val avgLat = latLngs.sumOf { it.latitude } / latLngs.size
+    val cosLat = cos(Math.toRadians(avgLat)).coerceAtLeast(0.1)
+    val eastMeters = latLngs.map { (it.longitude - center.longitude) * METERS_PER_DEGREE_LAT * cosLat }
+    val northMeters = latLngs.map { (it.latitude - center.latitude) * METERS_PER_DEGREE_LAT }
+
+    val minE = eastMeters.minOrNull() ?: 0.0
+    val maxE = eastMeters.maxOrNull() ?: 0.0
+    val minN = northMeters.minOrNull() ?: 0.0
+    val maxN = northMeters.maxOrNull() ?: 0.0
+    val span = maxOf(maxE - minE, maxN - minN, 40.0)
+    val midE = (minE + maxE) / 2.0
+    val midN = (minN + maxN) / 2.0
+
+    return latLngs.indices.map { idx ->
+      val nx = (0.5 + ((eastMeters[idx] - midE) / span) * 0.72).toFloat().coerceIn(0.06f, 0.94f)
+      val ny = (0.5 - ((northMeters[idx] - midN) / span) * 0.72).toFloat().coerceIn(0.06f, 0.94f)
+      NormalizedPoint(nx, ny)
+    }
+  }
+
   fun normalizedToLatLng(point: NormalizedPoint, center: GeoCenter): GeoLatLng {
     val cosLat = cos(Math.toRadians(center.latitude)).coerceAtLeast(0.1)
     val metersPerDegLng = METERS_PER_DEGREE_LAT * cosLat
@@ -115,7 +179,7 @@ object GeoCoordinateMapper {
    * Computes spherical geodesic polygon area in Hectares from real WGS84 [GeoLatLng] vertices.
    */
   fun computeGeodesicAreaHectares(vertices: List<GeoLatLng>): Double {
-    if (vertices.size < 3) return 0.15
+    if (vertices.size < 3) return 0.0
     var totalAngle = 0.0
     val n = vertices.size
     for (i in 0 until n) {
@@ -128,8 +192,32 @@ object GeoCoordinateMapper {
       totalAngle += (lng2 - lng1) * (2.0 + sin(lat1) + sin(lat2))
     }
     val areaSqMeters = abs(totalAngle * EARTH_RADIUS_METERS * EARTH_RADIUS_METERS / 2.0)
-    val hectares = (areaSqMeters / 10_000.0).coerceIn(0.15, 999.0)
+    val hectares = (areaSqMeters / 10_000.0).coerceIn(0.01, 99999.0)
     return kotlin.math.round(hectares * 100.0) / 100.0
+  }
+
+  fun computeHaversineDistanceMeters(p1: GeoLatLng, p2: GeoLatLng): Double {
+    val dLat = Math.toRadians(p2.latitude - p1.latitude)
+    val dLon = Math.toRadians(p2.longitude - p1.longitude)
+    val lat1 = Math.toRadians(p1.latitude)
+    val lat2 = Math.toRadians(p2.latitude)
+    val a =
+      sin(dLat / 2.0) * sin(dLat / 2.0) +
+        cos(lat1) * cos(lat2) * sin(dLon / 2.0) * sin(dLon / 2.0)
+    val c = 2.0 * atan2(sqrt(a), sqrt((1.0 - a).coerceAtLeast(0.0)))
+    return EARTH_RADIUS_METERS * c
+  }
+
+  fun computeGeodesicPerimeterMeters(vertices: List<GeoLatLng>): Double {
+    if (vertices.size < 2) return 0.0
+    if (vertices.size == 2) {
+      return kotlin.math.round(computeHaversineDistanceMeters(vertices[0], vertices[1]) * 10.0) / 10.0
+    }
+    var perimeter = 0.0
+    for (i in vertices.indices) {
+      perimeter += computeHaversineDistanceMeters(vertices[i], vertices[(i + 1) % vertices.size])
+    }
+    return kotlin.math.round(perimeter * 10.0) / 10.0
   }
 
   fun computeCentroid(vertices: List<GeoLatLng>, fallback: GeoLatLng): GeoLatLng {

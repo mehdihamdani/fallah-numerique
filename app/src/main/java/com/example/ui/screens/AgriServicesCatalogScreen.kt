@@ -727,6 +727,52 @@ private fun MarketPricesAdvisoryDialog(
           }
         }
 
+        val customCropGroups =
+          activeListings
+            .filter { CropVarietyType.isCustomCrop(it.cropType) }
+            .groupBy { it.cropType.trim() }
+        customCropGroups.forEach { (customCropName, groupListings) ->
+          val avgCustomPrice = groupListings.map { it.pricePerKgDzd }.average()
+          val totalCustomTons = groupListings.sumOf { it.availableTons }
+          Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Column {
+                Text(
+                  text = customCropName,
+                  style = MaterialTheme.typography.titleSmall,
+                  fontWeight = FontWeight.Bold,
+                )
+                Text(
+                  text =
+                    "${groupListings.size} عروض حية لمنتوج مخصص (${String.format(Locale.US, "%.1f", totalCustomTons)} طن متاح)",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+              ) {
+                Text(
+                  text = "${String.format(Locale.US, "%.0f", avgCustomPrice)} دج/كغ",
+                  style = MaterialTheme.typography.labelLarge,
+                  fontWeight = FontWeight.ExtraBold,
+                  color = MaterialTheme.colorScheme.onPrimaryContainer,
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+              }
+            }
+          }
+        }
+
         FilledTonalButton(
           onClick = onOpenMarketTab,
           shape = RoundedCornerShape(10.dp),

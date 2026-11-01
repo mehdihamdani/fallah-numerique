@@ -118,8 +118,8 @@ dependencies {
   // Uncomment to use Firestore:
   implementation(libs.firebase.firestore)
 
-  // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
-  // Sign-In via Credential Manager:
+  // Firebase BoM & Authentication (com.google.firebase:firebase-bom & com.google.firebase:firebase-auth
+  // managed via gradle/libs.versions.toml -> 34.17.0 compatible with AGP 9.1.1 / Kotlin 2.2.10):
   implementation(libs.firebase.auth)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)

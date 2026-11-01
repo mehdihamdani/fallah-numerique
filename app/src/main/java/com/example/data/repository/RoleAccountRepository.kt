@@ -5,11 +5,15 @@ import com.example.R
 import com.example.data.OperationType
 import com.example.data.handleFirestoreError
 import com.example.data.model.AppLanguage
+import com.example.data.model.FavoriteTargetType
+import com.example.data.model.IdentityVerificationData
 import com.example.data.model.MarketplaceOrder
 import com.example.data.model.PartnerCatalogItem
 import com.example.data.model.PlatformMessage
 import com.example.data.model.RoleSpecificProfile
 import com.example.data.model.UserAccountProfile
+import com.example.data.model.UserFavoriteRecord
+import com.example.data.model.UserRatingRecord
 import com.example.data.model.UserRole
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
@@ -113,6 +117,9 @@ class RoleAccountRepository(
     chosenDefaultRole: String,
     step: Int,
     completed: Boolean,
+    identityVerification: IdentityVerificationData? = null,
+    phoneNumber: String? = null,
+    phoneVerified: Boolean? = null,
   ): Result<UserAccountProfile> {
     val uid = requireUserId()
     val rawTrimmed = selectedRoleCodes.map { it.trim().lowercase() }.filter { it.isNotBlank() }
@@ -150,6 +157,33 @@ class RoleAccountRepository(
     val safeEmail = email.trim().take(155)
     val docRef = db.collection(USERS_COLLECTION).document(uid)
 
+    val identityFields: Map<String, Any> =
+      if (identityVerification != null) {
+        val safeNatNum = identityVerification.nationalIdNumber.trim().take(40)
+        val safeNatHolder = identityVerification.nationalIdHolderName.trim().take(120)
+        val safeFarmerNum = identityVerification.farmerCardNumber.trim().take(60)
+        val safeFarmerWilaya = identityVerification.farmerCardWilaya.trim().take(80)
+        mapOf(
+          "nationalIdScanned" to (identityVerification.nationalIdScanned || safeNatNum.isNotEmpty()),
+          "nationalIdNumber" to safeNatNum,
+          "nationalIdHolderName" to safeNatHolder,
+          "farmerCardScanned" to (identityVerification.farmerCardScanned || safeFarmerNum.isNotEmpty()),
+          "farmerCardNumber" to safeFarmerNum,
+          "farmerCardWilaya" to safeFarmerWilaya,
+        )
+      } else {
+        emptyMap()
+      }
+
+    val phoneFields: Map<String, Any> = buildMap {
+      if (phoneNumber != null) {
+        put("phoneNumber", phoneNumber.trim().take(32))
+      }
+      if (phoneVerified != null) {
+        put("phoneVerified", phoneVerified)
+      }
+    }
+
     return try {
       val existingSnap = docRef.get().await()
       if (!existingSnap.exists()) {
@@ -165,7 +199,7 @@ class RoleAccountRepository(
             "onboardingStep" to safeStep,
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp(),
-          )
+          ) + identityFields + phoneFields
         docRef.set(payload).await()
       } else {
         val updates =
@@ -178,7 +212,7 @@ class RoleAccountRepository(
             "onboardingCompleted" to completed,
             "onboardingStep" to safeStep,
             "updatedAt" to FieldValue.serverTimestamp(),
-          )
+          ) + identityFields + phoneFields
         docRef.update(updates).await()
       }
 
@@ -200,8 +234,50 @@ class RoleAccountRepository(
             defaultRole = resolvedDefault,
             onboardingCompleted = completed,
             onboardingStep = safeStep,
+            nationalIdScanned = identityVerification?.hasNationalId == true,
+            nationalIdNumber = identityVerification?.nationalIdNumber?.trim()?.take(40).orEmpty(),
+            nationalIdHolderName = identityVerification?.nationalIdHolderName?.trim()?.take(120).orEmpty(),
+            farmerCardScanned = identityVerification?.hasFarmerCard == true,
+            farmerCardNumber = identityVerification?.farmerCardNumber?.trim()?.take(60).orEmpty(),
+            farmerCardWilaya = identityVerification?.farmerCardWilaya?.trim()?.take(80).orEmpty(),
           )
       Result.success(saved)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.UPDATE, docRef.path)
+      Result.failure(e)
+    }
+  }
+
+  /**
+   * Updates owner-isolated National ID Card and optional Farmer Card verification fields on `/users/{uid}`.
+   */
+  suspend fun updateIdentityDocuments(
+    identityVerification: IdentityVerificationData,
+  ): Result<Unit> {
+    val uid = requireUserId()
+    val docRef = db.collection(USERS_COLLECTION).document(uid)
+    val safeNatNum = identityVerification.nationalIdNumber.trim().take(40)
+    val safeNatHolder = identityVerification.nationalIdHolderName.trim().take(120)
+    val safeFarmerNum = identityVerification.farmerCardNumber.trim().take(60)
+    val safeFarmerWilaya = identityVerification.farmerCardWilaya.trim().take(80)
+
+    return try {
+      docRef
+        .update(
+          mapOf(
+            "nationalIdScanned" to (identityVerification.nationalIdScanned || safeNatNum.isNotEmpty()),
+            "nationalIdNumber" to safeNatNum,
+            "nationalIdHolderName" to safeNatHolder,
+            "farmerCardScanned" to (identityVerification.farmerCardScanned || safeFarmerNum.isNotEmpty()),
+            "farmerCardNumber" to safeFarmerNum,
+            "farmerCardWilaya" to safeFarmerWilaya,
+            "updatedAt" to FieldValue.serverTimestamp(),
+          )
+        )
+        .await()
+      Result.success(Unit)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -907,11 +983,225 @@ class RoleAccountRepository(
     }
   }
 
+  /**
+   * Streams all published star ratings & reputation points across the marketplace.
+   * Aligned with security rule `status == 'published'`.
+   */
+  fun observePublishedRatings(): Flow<List<UserRatingRecord>> {
+    val path = USER_RATINGS_COLLECTION
+    return db
+      .collection(path)
+      .whereEqualTo("status", "published")
+      .snapshots()
+      .map { snap ->
+        snap
+          .toObjects(
+            UserRatingRecord::class.java,
+            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE,
+          )
+          .sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
+      }
+      .catch { error ->
+        if (error is Exception) {
+          handleFirestoreError(error, OperationType.LIST, path)
+        }
+        throw error
+      }
+  }
+
+  /**
+   * Submits or updates the caller's 1..5 star rating & trust points (`stars * 20`) for [targetUserId].
+   * Rejects self-ratings and out-of-range star counts.
+   */
+  suspend fun submitOrUpdateUserRating(
+    reviewerName: String,
+    reviewerRole: String,
+    targetUserId: String,
+    targetName: String,
+    targetRole: String,
+    stars: Int,
+    comment: String = "",
+    contextItemId: String = "",
+  ): Result<String> {
+    val uid = requireUserId()
+    val cleanTargetUid = UserFavoriteRecord.sanitizeKeySegment(targetUserId).take(60)
+    if (cleanTargetUid.isBlank()) {
+      return Result.failure(IllegalArgumentException("Target user ID is required."))
+    }
+    if (cleanTargetUid == uid) {
+      return Result.failure(IllegalArgumentException("SELF_RATING_FORBIDDEN"))
+    }
+    if (stars !in 1..5) {
+      return Result.failure(IllegalArgumentException("Star rating must be between 1 and 5."))
+    }
+
+    val safeReviewerRole = UserRole.fromCode(reviewerRole).code
+    val safeTargetRole = UserRole.fromCode(targetRole).code
+    val safeReviewerName = reviewerName.trim().ifBlank { "متعامل فلاح نوميريك" }.take(115)
+    val safeTargetName = targetName.trim().ifBlank { "متعامل المنصة" }.take(115)
+    val safeComment = comment.trim().take(295)
+    val safeContextItem = contextItemId.trim().take(120)
+    val pointsAwarded = stars * 20
+
+    val ratingId = "${uid}_$cleanTargetUid"
+    val docRef = db.collection(USER_RATINGS_COLLECTION).document(ratingId)
+
+    return try {
+      val existingSnap = docRef.get().await()
+      if (!existingSnap.exists()) {
+        val createPayload =
+          mapOf(
+            "reviewerId" to uid,
+            "reviewerName" to safeReviewerName,
+            "reviewerRole" to safeReviewerRole,
+            "targetUserId" to cleanTargetUid,
+            "targetName" to safeTargetName,
+            "targetRole" to safeTargetRole,
+            "stars" to stars,
+            "pointsAwarded" to pointsAwarded,
+            "comment" to safeComment,
+            "contextItemId" to safeContextItem,
+            "status" to "published",
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp(),
+          )
+        docRef.set(createPayload).await()
+      } else {
+        val updatePayload =
+          mapOf(
+            "reviewerName" to safeReviewerName,
+            "reviewerRole" to safeReviewerRole,
+            "targetName" to safeTargetName,
+            "targetRole" to safeTargetRole,
+            "stars" to stars,
+            "pointsAwarded" to pointsAwarded,
+            "comment" to safeComment,
+            "contextItemId" to safeContextItem,
+            "status" to "published",
+            "updatedAt" to FieldValue.serverTimestamp(),
+          )
+        docRef.update(updatePayload).await()
+      }
+      Result.success(ratingId)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.WRITE, docRef.path)
+      Result.failure(e)
+    }
+  }
+
+  suspend fun deleteUserRating(targetUserId: String): Result<Unit> {
+    val uid = requireUserId()
+    val cleanTargetUid = UserFavoriteRecord.sanitizeKeySegment(targetUserId).take(60)
+    val ratingId = "${uid}_$cleanTargetUid"
+    val docRef = db.collection(USER_RATINGS_COLLECTION).document(ratingId)
+    return try {
+      docRef.delete().await()
+      Result.success(Unit)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.DELETE, docRef.path)
+      Result.failure(e)
+    }
+  }
+
+  /**
+   * Streams the authenticated user's own favorites (`/user_favorites`), aligned with `userId == uid`.
+   */
+  fun observeUserFavorites(userId: String): Flow<List<UserFavoriteRecord>> {
+    val path = USER_FAVORITES_COLLECTION
+    return db
+      .collection(path)
+      .whereEqualTo("userId", userId)
+      .snapshots()
+      .map { snap ->
+        snap
+          .toObjects(
+            UserFavoriteRecord::class.java,
+            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE,
+          )
+          .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
+      }
+      .catch { error ->
+        if (error is Exception) {
+          handleFirestoreError(error, OperationType.LIST, path)
+        }
+        throw error
+      }
+  }
+
+  /**
+   * Toggles a favorite operator, harvest listing, or partner catalog item for the current user.
+   * Returns `true` when added to favorites, or `false` when removed from favorites.
+   */
+  suspend fun toggleFavorite(
+    favoriteType: FavoriteTargetType,
+    targetId: String,
+    targetOwnerId: String,
+    targetTitle: String,
+    targetSubtitle: String,
+    targetRole: String,
+  ): Result<Boolean> {
+    val uid = requireUserId()
+    val cleanTargetId = UserFavoriteRecord.sanitizeKeySegment(targetId)
+    if (cleanTargetId.isBlank()) {
+      return Result.failure(IllegalArgumentException("Target ID is required."))
+    }
+    val favoriteId = UserFavoriteRecord.compositeDocumentId(uid, favoriteType, cleanTargetId)
+    val docRef = db.collection(USER_FAVORITES_COLLECTION).document(favoriteId)
+
+    return try {
+      val existingSnap = docRef.get().await()
+      if (existingSnap.exists()) {
+        docRef.delete().await()
+        Result.success(false)
+      } else {
+        val payload =
+          mapOf(
+            "userId" to uid,
+            "favoriteType" to favoriteType.code,
+            "targetId" to cleanTargetId,
+            "targetOwnerId" to targetOwnerId.trim().ifBlank { cleanTargetId }.take(120),
+            "targetTitle" to targetTitle.trim().ifBlank { "عنصر مفضل" }.take(155),
+            "targetSubtitle" to targetSubtitle.trim().take(155),
+            "targetRole" to UserRole.fromCode(targetRole).code,
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp(),
+          )
+        docRef.set(payload).await()
+        Result.success(true)
+      }
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.WRITE, docRef.path)
+      Result.failure(e)
+    }
+  }
+
+  suspend fun removeFavoriteById(favoriteId: String): Result<Unit> {
+    requireUserId()
+    val docRef = db.collection(USER_FAVORITES_COLLECTION).document(favoriteId)
+    return try {
+      docRef.delete().await()
+      Result.success(Unit)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.DELETE, docRef.path)
+      Result.failure(e)
+    }
+  }
+
   companion object {
     const val USERS_COLLECTION = "users"
     const val ROLE_PROFILES_COLLECTION = "role_profiles"
     const val PARTNER_CATALOG_COLLECTION = "partner_catalog"
     const val ORDERS_COLLECTION = "marketplace_orders"
     const val MESSAGES_COLLECTION = "messages"
+    const val USER_RATINGS_COLLECTION = "user_ratings"
+    const val USER_FAVORITES_COLLECTION = "user_favorites"
   }
 }

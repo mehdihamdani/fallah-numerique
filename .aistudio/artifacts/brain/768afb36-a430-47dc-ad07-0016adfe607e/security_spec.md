@@ -18,6 +18,13 @@
    - Only `isEditorialAdmin()` (`mehdi.hamdani.net@gmail.com` or server-provisioned `/editorial_admins/{uid}`) can create, approve/reject, update, or delete `/news_articles` and `/news_sources`.
    - `originalUrl`, `baseUrl`, and `feedUrl` strictly enforce `^https://...` (rejecting `http://`, `javascript:`, and `data:` schemes).
    - `/user_news_preferences/{userId}` enforces strict owner isolation (`request.auth.uid == userId`) and validates `preferredCategories` against the 10 canonical news category codes.
+10. **Registration Identity & Optional Farmer Card PII Isolation (`/users/{userId}`)**:
+   - Optional registration verification metadata (`nationalIdScanned`, `nationalIdNumber` <= 40 chars, `nationalIdHolderName` <= 120 chars, `farmerCardScanned`, `farmerCardNumber` <= 60 chars, `farmerCardWilaya` <= 80 chars) is stored strictly inside `/users/{userId}` where `get`, `list`, `create`, and `update` require `request.auth.uid == userId`, preventing any cross-user PII exposure.
+11. **Marketplace Star Ratings & Operator Reputation Points (`/user_ratings/{ratingId}`)**:
+   - Deterministic composite key `${reviewerId}_${targetUserId}` guarantees at most one active rating per `(reviewerId, targetUserId)` pair (preventing vote-stuffing).
+   - Enforces `reviewerId == request.auth.uid`, strict anti-self-rating (`targetUserId != request.auth.uid`), bounded `stars` (`1..5`), tamper-proof `pointsAwarded == stars * 20` (`20..100`), bounded `comment` (`<= 300`), and query-enforced `list` (`status == 'published'` or `reviewerId == request.auth.uid`).
+12. **Owner-Isolated Favorites (`/user_favorites/{favoriteId}`)**:
+   - Deterministic composite key `${userId}_${favoriteType}_${targetId}` (`favoriteType in ['operator', 'market_listing', 'partner_item']`) enforces strict owner-only read, list (`userId == request.auth.uid`), create, update, and delete isolation.
 
 ## 2. Dirty Dozen Payloads
 1. Unauthenticated read/write to `/parcels/p1` or `/ai_conversations/c1` -> Reject.

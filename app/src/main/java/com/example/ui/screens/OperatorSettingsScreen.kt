@@ -62,10 +62,16 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import com.example.R
+import com.example.data.ai.DocumentOcrScanner
+import com.example.data.ai.FirebaseAiDocumentScanner
 import com.example.data.model.AppLanguage
+import com.example.data.model.IdentityVerificationData
 import com.example.data.model.MapLayerMode
 import com.example.data.model.RoleSpecificProfile
+import com.example.data.model.UserReputationSummary
 import com.example.data.model.UserRole
+import com.example.ui.components.IdentityDocumentScannerSection
+import com.example.ui.components.MyReputationOverviewCard
 import com.example.util.RoleStrings
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -102,11 +108,18 @@ fun OperatorSettingsScreen(
   onAddRoles: (List<String>) -> Unit = {},
   onRemoveRole: (String) -> Unit = {},
   onSaveRoleProfile: (RoleSpecificProfile) -> Unit = {},
+  identityVerification: IdentityVerificationData = IdentityVerificationData(),
+  onSaveIdentityVerification: (IdentityVerificationData) -> Unit = {},
+  documentScanner: DocumentOcrScanner = FirebaseAiDocumentScanner,
+  myReputation: UserReputationSummary = UserReputationSummary(targetUserId = ""),
+  favoritesCount: Int = 0,
+  onOpenFavoritesInMarket: (() -> Unit)? = null,
 ) {
   BackHandler(onBack = onBackToDelineation)
 
   var operatorInput by remember(operatorName) { mutableStateOf(operatorName) }
   var wilayaInput by remember(defaultWilaya) { mutableStateOf(defaultWilaya) }
+  var identityDraft by remember(identityVerification) { mutableStateOf(identityVerification) }
   var showAddRoleDialog by remember { mutableStateOf(false) }
   var editingRoleProfileTarget by remember { mutableStateOf<UserRole?>(null) }
 
@@ -198,6 +211,55 @@ fun OperatorSettingsScreen(
             }
           }
         }
+      }
+    }
+
+    // 1-Rep. Operator Reputation Score, Stars & Saved Favorites Overview
+    MyReputationOverviewCard(
+      myReputation = myReputation,
+      favoritesCount = favoritesCount,
+      language = currentLanguage,
+      onOpenFavoritesInMarket = onOpenFavoritesInMarket,
+    )
+
+    // 1A. National ID Card & Optional Farmer Card Verification Section
+    Column(
+      modifier = Modifier.fillMaxWidth().testTag("settings_identity_verification_block"),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      IdentityDocumentScannerSection(
+        language = currentLanguage,
+        identityData = identityDraft,
+        onIdentityDataChanged = { identityDraft = it },
+        documentScanner = documentScanner,
+        onFarmerCardAutoPopulate = { scannedWilaya, scannedFarmName, _ ->
+          if (scannedWilaya.isNotBlank() && wilayaInput.isBlank()) {
+            wilayaInput = scannedWilaya
+          }
+          if (scannedFarmName.isNotBlank() && operatorInput.isBlank()) {
+            operatorInput = scannedFarmName
+          }
+        },
+      )
+
+      Button(
+        onClick = { onSaveIdentityVerification(identityDraft) },
+        shape = RoundedCornerShape(12.dp),
+        modifier =
+          Modifier.fillMaxWidth().height(48.dp).testTag("settings_save_identity_button"),
+      ) {
+        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+          text =
+            RoleStrings.tr(
+              currentLanguage,
+              ar = "حفظ وثائق الهوية وبطاقة الفلاح (إن وجدت)",
+              fr = "Enregistrer la CNI & Carte d'Agriculteur (si disponible)",
+              en = "Save National ID & Farmer Card (if any)",
+            ),
+          fontWeight = FontWeight.Bold,
+        )
       }
     }
 

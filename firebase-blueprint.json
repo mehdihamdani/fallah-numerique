@@ -80,8 +80,7 @@
         },
         "mainCrop": {
           "type": "string",
-          "enum": ["deglet_nour", "pomme_de_terre", "olivier", "tomate_industrielle"],
-          "description": "Primary cultivated crop code."
+          "description": "Primary cultivated crop code or custom farmer-defined product name (0..80 chars; may be empty)."
         },
         "irrigationSystem": {
           "type": "string",
@@ -166,8 +165,7 @@
         },
         "cropType": {
           "type": "string",
-          "enum": ["deglet_nour", "pomme_de_terre", "olivier", "tomate_industrielle"],
-          "description": "Harvest crop category."
+          "description": "Harvest crop category code or custom farmer-defined product name (1..80 chars)."
         },
         "wilaya": {
           "type": "string",
@@ -393,6 +391,38 @@
         "onboardingStep": {
           "type": "integer",
           "description": "Current onboarding step (1..5) allowing interrupted onboarding to resume."
+        },
+        "nationalIdScanned": {
+          "type": "boolean",
+          "description": "Whether the operator scanned/verified their National Identity Card (CNI) during registration."
+        },
+        "nationalIdNumber": {
+          "type": "string",
+          "description": "Owner-isolated National Identity Card number (<= 40 chars)."
+        },
+        "nationalIdHolderName": {
+          "type": "string",
+          "description": "Holder full name extracted/confirmed from the National Identity Card (<= 120 chars)."
+        },
+        "farmerCardScanned": {
+          "type": "boolean",
+          "description": "Optional flag indicating whether a Chamber of Agriculture Farmer Card (Carte Fellah) was scanned."
+        },
+        "farmerCardNumber": {
+          "type": "string",
+          "description": "Optional Chamber of Agriculture Farmer Card number if available (<= 60 chars)."
+        },
+        "farmerCardWilaya": {
+          "type": "string",
+          "description": "Optional Chamber of Agriculture Wilaya from the Farmer Card (<= 80 chars)."
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "Optional verified E.164 or local operator phone number (<= 32 chars)."
+        },
+        "phoneVerified": {
+          "type": "boolean",
+          "description": "Optional flag indicating whether the operator authenticated and confirmed via SMS OTP."
         },
         "createdAt": {
           "type": "string",
@@ -1100,6 +1130,143 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "UserRatingRecord": {
+      "title": "UserRatingRecord",
+      "description": "Authenticated operator star rating (1..5 stars) and reputation points (20..100) keyed by ${reviewerId}_${targetUserId}.",
+      "type": "object",
+      "properties": {
+        "reviewerId": {
+          "type": "string",
+          "description": "Authenticated UID of the operator submitting the rating."
+        },
+        "reviewerName": {
+          "type": "string",
+          "description": "Display name of the reviewer."
+        },
+        "reviewerRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Active professional role of the reviewer."
+        },
+        "targetUserId": {
+          "type": "string",
+          "description": "UID of the rated operator (must not equal reviewerId)."
+        },
+        "targetName": {
+          "type": "string",
+          "description": "Display or business name of the rated operator."
+        },
+        "targetRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Professional role of the rated operator."
+        },
+        "stars": {
+          "type": "integer",
+          "description": "Star rating from 1 to 5 inclusive."
+        },
+        "pointsAwarded": {
+          "type": "integer",
+          "description": "Reputation points awarded (strictly stars * 20, i.e. 20..100)."
+        },
+        "comment": {
+          "type": "string",
+          "description": "Optional constructive review comment (<= 300 chars)."
+        },
+        "contextItemId": {
+          "type": "string",
+          "description": "Optional market listing, partner catalog item, or order ID associated with the rating."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["published", "hidden"],
+          "description": "Visibility status enforced on list queries."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "reviewerId",
+        "reviewerName",
+        "reviewerRole",
+        "targetUserId",
+        "targetName",
+        "targetRole",
+        "stars",
+        "pointsAwarded",
+        "comment",
+        "contextItemId",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserFavoriteRecord": {
+      "title": "UserFavoriteRecord",
+      "description": "Owner-isolated favorite bookmark for operators, harvest listings, or partner catalog offers keyed by ${userId}_${favoriteType}_${targetId}.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "favoriteType": {
+          "type": "string",
+          "enum": ["operator", "market_listing", "partner_item"],
+          "description": "Category of favorited entity."
+        },
+        "targetId": {
+          "type": "string",
+          "description": "ID of the favorited operator, market listing, or partner catalog item."
+        },
+        "targetOwnerId": {
+          "type": "string",
+          "description": "UID of the operator owning the favorited target."
+        },
+        "targetTitle": {
+          "type": "string",
+          "description": "Display title or operator name for fast favorites rendering."
+        },
+        "targetSubtitle": {
+          "type": "string",
+          "description": "Wilaya, crop, or price summary subtitle."
+        },
+        "targetRole": {
+          "type": "string",
+          "enum": ["farmer", "trader", "transporter", "supplier", "service_provider", "storage_provider"],
+          "description": "Professional role associated with the favorited target."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "favoriteType",
+        "targetId",
+        "targetOwnerId",
+        "targetTitle",
+        "targetSubtitle",
+        "targetRole",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -1166,6 +1333,14 @@
     "/user_news_preferences/{userId}": {
       "schema": "UserNewsPreferences",
       "description": "Per-user Fellah Matin news feed category, region, and language preferences."
+    },
+    "/user_ratings/{ratingId}": {
+      "schema": "UserRatingRecord",
+      "description": "Operator star ratings (1..5) and trust points (20..100) keyed by ${reviewerId}_${targetUserId}."
+    },
+    "/user_favorites/{favoriteId}": {
+      "schema": "UserFavoriteRecord",
+      "description": "Owner-isolated favorites for operators, harvest listings, and partner catalog items."
     }
   }
 }

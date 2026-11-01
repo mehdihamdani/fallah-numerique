@@ -45,7 +45,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.ceil
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
@@ -488,7 +488,7 @@ class FellahNewsRepository(
                 systemInstructionText = systemInstruction,
                 history = emptyList(),
                 userPromptWithSandboxedData = sandboxedXml,
-                maxOutputTokens = 384,
+                maxOutputTokens = 2048,
               )
             )
             .trim()
@@ -563,8 +563,8 @@ class FellahNewsRepository(
   // ---------------------------------------------------------------------------
 
   fun observeUserNewsPreferences(userId: String): Flow<UserNewsPreferences?> {
-    val firestore = db ?: return emptyFlow()
-    if (auth?.currentUser?.uid != userId) return emptyFlow()
+    val firestore = db ?: return flowOf(null)
+    if (auth?.currentUser?.uid != userId) return flowOf(null)
 
     val docRef = firestore.collection(USER_NEWS_PREFS_COLLECTION).document(userId)
     return docRef
@@ -683,8 +683,8 @@ class FellahNewsRepository(
   }
 
   fun observeEditorialQueue(): Flow<List<NewsArticleRecord>> {
-    val firestore = db ?: return emptyFlow()
-    if (auth?.currentUser == null) return emptyFlow()
+    val firestore = db ?: return flowOf(emptyList())
+    if (auth?.currentUser == null) return flowOf(emptyList())
 
     return firestore
       .collection(NEWS_ARTICLES_COLLECTION)
@@ -708,8 +708,8 @@ class FellahNewsRepository(
   }
 
   fun observeAllNewsSourcesForAdmin(): Flow<List<NewsSourceRecord>> {
-    val firestore = db ?: return emptyFlow()
-    if (auth?.currentUser == null) return emptyFlow()
+    val firestore = db ?: return flowOf(emptyList())
+    if (auth?.currentUser == null) return flowOf(emptyList())
 
     return firestore
       .collection(NEWS_SOURCES_COLLECTION)

@@ -24,12 +24,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.PersonAddAlt1
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
@@ -66,11 +70,19 @@ import androidx.compose.ui.unit.dp
 import com.example.data.model.AgriculturalParcel
 import com.example.data.model.AppLanguage
 import com.example.data.model.CropVarietyType
+import com.example.data.model.FavoriteTargetType
 import com.example.data.model.MarketListing
 import com.example.data.model.MarketplaceOrder
 import com.example.data.model.PartnerCatalogItem
 import com.example.data.model.SoilTextureType
+import com.example.data.model.UserFavoriteRecord
+import com.example.data.model.UserRatingRecord
+import com.example.data.model.UserReputationSummary
 import com.example.data.model.UserRole
+import com.example.ui.components.FavoriteToggleIconButton
+import com.example.ui.components.OperatorReputationBadge
+import com.example.ui.components.RateOperatorActionButton
+import com.example.ui.components.RateOperatorDialog
 import com.example.ui.viewmodel.UiState
 import com.example.util.RoleStrings
 import java.util.Locale
@@ -150,7 +162,9 @@ fun MyParcelsRegistryScreen(
               p.name.contains(searchQuery, ignoreCase = true) ||
               p.wilaya.contains(searchQuery, ignoreCase = true) ||
               p.ilotNumber.contains(searchQuery, ignoreCase = true) ||
-              CropVarietyType.fromCode(p.mainCrop).titleAr.contains(searchQuery, ignoreCase = true)
+              p.mainCrop.contains(searchQuery, ignoreCase = true) ||
+              CropVarietyType.resolveDisplayTitleAr(p.mainCrop, "غير محدد")
+                .contains(searchQuery, ignoreCase = true)
           }
 
         val totalHa = filtered.sumOf { it.areaHectares }
@@ -223,7 +237,7 @@ fun MyParcelsRegistryScreen(
         } else {
           Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             filtered.forEach { item ->
-              val crop = CropVarietyType.fromCode(item.mainCrop)
+              val cropTitleAr = CropVarietyType.resolveDisplayTitleAr(item.mainCrop, "غير محدد")
               val soil = SoilTextureType.fromCode(item.soilTexture)
               Card(
                 shape = RoundedCornerShape(16.dp),
@@ -279,7 +293,7 @@ fun MyParcelsRegistryScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                   ) {
-                    InfoTag("المحصول: ${crop.titleAr}")
+                    InfoTag("المحصول: $cropTitleAr")
                     InfoTag("التربة: ${soil.titleAr} (pH ${item.soilPh})")
                     InfoTag("NDVI ${String.format(Locale.US, "%.2f", item.ndviScore)}")
                     if (item.linkedToMarket) {
@@ -327,6 +341,13 @@ fun MyParcelsRegistryScreen(
   }
 }
 
+private data class PendingRatingTarget(
+  val targetUserId: String,
+  val targetName: String,
+  val targetRole: UserRole,
+  val contextItemId: String,
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PublicMarketScreen(
@@ -342,11 +363,38 @@ fun PublicMarketScreen(
   language: AppLanguage = AppLanguage.AR,
   requesterDisplayName: String = "Opérateur",
   onSubmitMarketOrder: (MarketplaceOrder) -> Unit = {},
+  reputationByUser: Map<String, UserReputationSummary> = emptyMap(),
+  publishedRatings: List<UserRatingRecord> = emptyList(),
+  userFavorites: List<UserFavoriteRecord> = emptyList(),
+  onSubmitRating: (
+    targetUserId: String,
+    targetName: String,
+    targetRole: String,
+    stars: Int,
+    comment: String,
+    contextItemId: String,
+  ) -> Unit = { _, _, _, _, _, _ -> },
+  onToggleFavorite: (
+    favoriteType: FavoriteTargetType,
+    targetId: String,
+    targetOwnerId: String,
+    targetTitle: String,
+    targetSubtitle: String,
+    targetRole: String,
+  ) -> Unit = { _, _, _, _, _, _ -> },
+  onRemoveFavorite: (String) -> Unit = {},
 ) {
   BackHandler(onBack = onBackToDelineation)
 
   var selectedCropFilter by remember { mutableStateOf<String?>(null) }
-  var marketSubTab by remember { mutableStateOf(0) } // 0 = Harvests, 1 = Partner Catalog
+  var marketSubTab by remember { mutableStateOf(0) } // 0 = Harvests, 1 = Partner Catalog, 2 = Favorites
+  var favoriteFilterType by remember { mutableStateOf<FavoriteTargetType?>(null) }
+  var pendingRatingTarget by remember { mutableStateOf<PendingRatingTarget?>(null) }
+
+  val favoritedKeys =
+    remember(userFavorites) {
+      userFavorites.map { "${it.favoriteType}_${it.targetId}" }.toSet()
+    }
 
   Column(
     modifier = modifier.fillMaxWidth(),
@@ -373,9 +421,9 @@ fun PublicMarketScreen(
           text =
             RoleStrings.tr(
               language,
-              ar = "محاصيل الفلاحين الموثقة + كتالوج الموردين والناقلين وغرف التبريد",
-              fr = "Récoltes certifiées + Catalogue intrants, transport et stockage frigorifique",
-              en = "Certified harvests + Supplier inputs, freight & cold-storage catalog",
+              ar = "محاصيل الفلاحين الموثقة + كتالوج الشركاء + التنقيط بالنجوم والمفضلة",
+              fr = "Récoltes certifiées + Catalogue partenaires + Étoiles & Favoris",
+              en = "Certified harvests + Partner catalog + Star Ratings & Favorites",
             ),
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -394,7 +442,10 @@ fun PublicMarketScreen(
       }
     }
 
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
       FilterChip(
         selected = marketSubTab == 0,
         onClick = { marketSubTab = 0 },
@@ -418,9 +469,213 @@ fun PublicMarketScreen(
         },
         modifier = Modifier.testTag("market_subtab_partners"),
       )
+      FilterChip(
+        selected = marketSubTab == 2,
+        onClick = { marketSubTab = 2 },
+        leadingIcon = {
+          Icon(
+            imageVector =
+              if (marketSubTab == 2) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+            contentDescription = null,
+            tint =
+              if (marketSubTab == 2) Color(0xFFD32F2F)
+              else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(17.dp),
+          )
+        },
+        label = {
+          Text(
+            RoleStrings.tr(
+              language,
+              ar = "المفضلة (${userFavorites.size})",
+              fr = "Favoris (${userFavorites.size})",
+              en = "Favorites (${userFavorites.size})",
+            )
+          )
+        },
+        modifier = Modifier.testTag("market_subtab_favorites"),
+      )
     }
 
-    if (marketSubTab == 1) {
+    if (marketSubTab == 2) {
+      // Dedicated Favorites Tab (Operators, Harvest Listings, Partner Offers)
+      FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        FilterChip(
+          selected = favoriteFilterType == null,
+          onClick = { favoriteFilterType = null },
+          label = { Text(RoleStrings.tr(language, "كل المفضلة", "Tous", "All")) },
+          modifier = Modifier.testTag("favorites_filter_all"),
+        )
+        FavoriteTargetType.entries.forEach { favType ->
+          FilterChip(
+            selected = favoriteFilterType == favType,
+            onClick = {
+              favoriteFilterType = if (favoriteFilterType == favType) null else favType
+            },
+            label = { Text(favType.localizedLabel(language)) },
+            modifier = Modifier.testTag("favorites_filter_${favType.code}"),
+          )
+        }
+      }
+
+      val filteredFavorites =
+        userFavorites.filter { fav ->
+          (favoriteFilterType == null || fav.favoriteType == favoriteFilterType?.code) &&
+            (searchQuery.isBlank() ||
+              fav.targetTitle.contains(searchQuery, ignoreCase = true) ||
+              fav.targetSubtitle.contains(searchQuery, ignoreCase = true))
+        }
+
+      if (filteredFavorites.isEmpty()) {
+        Card(
+          shape = RoundedCornerShape(16.dp),
+          colors =
+            CardDefaults.cardColors(
+              containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+            ),
+          modifier = Modifier.fillMaxWidth().testTag("favorites_empty_card"),
+        ) {
+          Column(
+            modifier = Modifier.fillMaxWidth().padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            Icon(
+              imageVector = Icons.Filled.BookmarkBorder,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(44.dp),
+            )
+            Text(
+              text =
+                RoleStrings.tr(
+                  language,
+                  ar = "قائمة المفضلة فارغة حالياً",
+                  fr = "Aucun favori enregistré pour le moment",
+                  en = "No saved favorites yet",
+                ),
+              style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+              text =
+                RoleStrings.tr(
+                  language,
+                  ar = "اضغط على أيقونة القلب (❤️) بجانب أي محصول أو عرض شريك أو متعامل لحفظه هنا والرجوع إليه سريعاً.",
+                  fr = "Appuyez sur le cœur (❤️) à côté d'une récolte, d'une offre ou d'un opérateur pour le retrouver ici.",
+                  en = "Tap the heart (❤️) next to any harvest, partner offer, or operator to bookmark it here.",
+                ),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              textAlign = TextAlign.Center,
+            )
+          }
+        }
+      } else {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          filteredFavorites.forEach { fav ->
+            val favType = FavoriteTargetType.fromCode(fav.favoriteType)
+            val ownerReputation =
+              reputationByUser[fav.targetOwnerId]
+                ?: UserReputationSummary(targetUserId = fav.targetOwnerId)
+            val roleEnum = UserRole.fromCode(fav.targetRole)
+
+            Card(
+              shape = RoundedCornerShape(16.dp),
+              colors =
+                CardDefaults.cardColors(
+                  containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                ),
+              modifier =
+                Modifier.fillMaxWidth()
+                  .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                    RoundedCornerShape(16.dp),
+                  )
+                  .testTag("favorite_saved_card_${fav.id}"),
+            ) {
+              Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Column(modifier = Modifier.weight(1f)) {
+                    Surface(
+                      shape = RoundedCornerShape(6.dp),
+                      color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                      Text(
+                        text =
+                          "${favType.localizedLabel(language)} • ${roleEnum.localizedTitle(language)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                      )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                      text = fav.targetTitle,
+                      style = MaterialTheme.typography.titleMedium,
+                      fontWeight = FontWeight.Bold,
+                    )
+                    if (fav.targetSubtitle.isNotBlank()) {
+                      Text(
+                        text = fav.targetSubtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                  }
+
+                  IconButton(
+                    onClick = { onRemoveFavorite(fav.id) },
+                    modifier = Modifier.size(48.dp).testTag("remove_favorite_${fav.id}"),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Filled.DeleteOutline,
+                      contentDescription =
+                        RoleStrings.tr(language, "إزالة من المفضلة", "Retirer", "Remove"),
+                      tint = MaterialTheme.colorScheme.error,
+                    )
+                  }
+                }
+
+                OperatorReputationBadge(summary = ownerReputation, language = language)
+
+                if (fav.targetOwnerId.isNotBlank() && fav.targetOwnerId != currentUserId) {
+                  val hasMyRating =
+                    publishedRatings.any {
+                      it.reviewerId == currentUserId && it.targetUserId == fav.targetOwnerId
+                    }
+                  RateOperatorActionButton(
+                    targetIdForTag = "fav_${fav.id}",
+                    hasExistingRatingByMe = hasMyRating,
+                    language = language,
+                    onClick = {
+                      pendingRatingTarget =
+                        PendingRatingTarget(
+                          targetUserId = fav.targetOwnerId,
+                          targetName = fav.targetTitle,
+                          targetRole = roleEnum,
+                          contextItemId = fav.targetId,
+                        )
+                    },
+                  )
+                }
+              }
+            }
+          }
+        }
+      }
+    } else if (marketSubTab == 1) {
       val catalogItems =
         ((partnerCatalogState as? UiState.Success)?.data ?: emptyList()).filter { item ->
           searchQuery.isBlank() ||
@@ -458,6 +713,18 @@ fun PublicMarketScreen(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
           catalogItems.forEach { pItem ->
             val providerRoleEnum = UserRole.fromCode(pItem.providerRole)
+            val providerReputation =
+              reputationByUser[pItem.userId]
+                ?: UserReputationSummary(targetUserId = pItem.userId)
+            val isOfferFav =
+              favoritedKeys.contains("${FavoriteTargetType.PARTNER_ITEM.code}_${pItem.id}")
+            val isOperatorFav =
+              favoritedKeys.contains("${FavoriteTargetType.OPERATOR.code}_${pItem.userId}")
+            val hasMyRating =
+              publishedRatings.any {
+                it.reviewerId == currentUserId && it.targetUserId == pItem.userId
+              }
+
             Card(
               shape = RoundedCornerShape(16.dp),
               colors =
@@ -493,266 +760,461 @@ fun PublicMarketScreen(
                       color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                   }
-                  Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                  ) {
-                    Text(
-                      text = "${pItem.priceDzd.toInt()} ${pItem.unitLabel}",
-                      style = MaterialTheme.typography.labelLarge,
-                      color = MaterialTheme.colorScheme.onPrimaryContainer,
-                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                  Row(verticalAlignment = Alignment.CenterVertically) {
+                    FavoriteToggleIconButton(
+                      isFavorited = isOfferFav,
+                      favoriteType = FavoriteTargetType.PARTNER_ITEM,
+                      targetId = pItem.id,
+                      language = language,
+                      onToggle = {
+                        onToggleFavorite(
+                          FavoriteTargetType.PARTNER_ITEM,
+                          pItem.id,
+                          pItem.userId,
+                          "${pItem.title} • ${pItem.providerName}",
+                          "${providerRoleEnum.localizedTitle(language)} — ${pItem.wilaya} (${pItem.priceDzd.toInt()} ${pItem.unitLabel})",
+                          pItem.providerRole,
+                        )
+                      },
                     )
-                  }
-                }
-                if (pItem.description.isNotBlank()) {
-                  Text(pItem.description, style = MaterialTheme.typography.bodySmall)
-                }
-                if (pItem.userId != currentUserId) {
-                  OutlinedButton(
-                    onClick = {
-                      onSubmitMarketOrder(
-                        MarketplaceOrder(
-                          requesterName = requesterDisplayName,
-                          requesterRole = activeRole.code,
-                          providerId = pItem.userId,
-                          targetRole = pItem.providerRole,
-                          targetItemId = pItem.id,
-                          orderType =
-                            when (pItem.providerRole) {
-                              UserRole.TRANSPORTER.code -> "transport_quote"
-                              UserRole.STORAGE_PROVIDER.code -> "storage_reservation"
-                              UserRole.SUPPLIER.code -> "supply_order"
-                              else -> "service_quote"
-                            },
-                          itemTitle = pItem.title,
-                          wilaya = pItem.wilaya,
-                          quantity = 1.0,
-                          unitLabel = pItem.unitLabel,
-                          proposedPriceDzd = pItem.priceDzd,
-                          notes = "طلب مباشر من السوق العام",
-                        )
-                      )
-                    },
-                    modifier = Modifier.height(48.dp).testTag("order_partner_item_${pItem.id}"),
-                  ) {
-                    Text(
-                      RoleStrings.tr(
-                        language,
-                        ar = "طلب / حجز مباشر",
-                        fr = "Commander / Réserver",
-                        en = "Order / Reserve",
-                      )
-                    )
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      return@Column
-    }
-
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      FilterChip(
-        selected = selectedCropFilter == null,
-        onClick = { selectedCropFilter = null },
-        label = { Text("الكل (Tous)") },
-      )
-      CropVarietyType.entries.forEach { crop ->
-        FilterChip(
-          selected = selectedCropFilter == crop.code,
-          onClick = {
-            selectedCropFilter = if (selectedCropFilter == crop.code) null else crop.code
-          },
-          label = { Text(crop.titleAr) },
-        )
-      }
-    }
-
-    when (listingsState) {
-      is UiState.Loading -> {
-        Box(
-          modifier = Modifier.fillMaxWidth().padding(48.dp),
-          contentAlignment = Alignment.Center,
-        ) {
-          CircularProgressIndicator()
-        }
-      }
-      is UiState.Error -> {
-        Surface(
-          shape = RoundedCornerShape(14.dp),
-          color = MaterialTheme.colorScheme.errorContainer,
-          modifier = Modifier.fillMaxWidth(),
-        ) {
-          Text(
-            text = listingsState.message,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.padding(16.dp),
-          )
-        }
-      }
-      is UiState.Success -> {
-        val filtered =
-          listingsState.data.filter { l ->
-            (selectedCropFilter == null || l.cropType == selectedCropFilter) &&
-              (searchQuery.isBlank() ||
-                l.operatorName.contains(searchQuery, ignoreCase = true) ||
-                l.wilaya.contains(searchQuery, ignoreCase = true) ||
-                l.parcelReference.contains(searchQuery, ignoreCase = true))
-          }
-
-        if (filtered.isEmpty()) {
-          Card(
-            shape = RoundedCornerShape(16.dp),
-            colors =
-              CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-              ),
-            modifier = Modifier.fillMaxWidth(),
-          ) {
-            Column(
-              modifier = Modifier.fillMaxWidth().padding(32.dp),
-              horizontalAlignment = Alignment.CenterHorizontally,
-              verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-              Icon(
-                imageVector = Icons.Filled.Storefront,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp),
-              )
-              Text(
-                text = "لا توجد إعلانات بيع نشطة مطابقة حالياً",
-                style = MaterialTheme.typography.titleLarge,
-              )
-              Text(
-                text = "اربط قطعتك الفلاحية بإعلان بيع رسمي لعرض الكمية المتوقعة وسعر الكيلوغرام للمشترين والتعاونيات.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-              )
-              Button(onClick = onOpenPublishModal, modifier = Modifier.height(48.dp)) {
-                Text("ربط القطعة الحالية بإعلان بيع")
-              }
-            }
-          }
-        } else {
-          Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            filtered.forEach { listing ->
-              val crop = CropVarietyType.fromCode(listing.cropType)
-              val isMine = listing.userId == currentUserId
-              Card(
-                shape = RoundedCornerShape(16.dp),
-                colors =
-                  CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-                  ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier =
-                  Modifier.fillMaxWidth()
-                    .border(
-                      1.dp,
-                      MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                      RoundedCornerShape(16.dp),
-                    ),
-              ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                  Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                  ) {
-                    Row(
-                      verticalAlignment = Alignment.CenterVertically,
-                      horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                      Icon(
-                        Icons.Filled.Verified,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp),
-                      )
-                      Column {
-                        Text(
-                          text = "${crop.titleAr} • ${listing.operatorName}",
-                          style = MaterialTheme.typography.titleLarge,
-                        )
-                        Text(
-                          text = "${listing.wilaya} • مرجع القطعة: ${listing.parcelReference}",
-                          style = MaterialTheme.typography.bodySmall,
-                          color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                      }
-                    }
-
                     Surface(
                       shape = RoundedCornerShape(8.dp),
                       color = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                       Text(
-                        text = "${listing.pricePerKgDzd.toInt()} د.ج / كغ",
+                        text = "${pItem.priceDzd.toInt()} ${pItem.unitLabel}",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                       )
                     }
                   }
+                }
 
-                  Spacer(modifier = Modifier.height(10.dp))
+                OperatorReputationBadge(summary = providerReputation, language = language)
 
-                  Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                if (pItem.description.isNotBlank()) {
+                  Text(pItem.description, style = MaterialTheme.typography.bodySmall)
+                }
+                if (pItem.userId.isNotBlank() && pItem.userId != currentUserId) {
+                  FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                   ) {
-                    InfoTag(
-                      "الكمية المتوفرة: ${String.format(Locale.US, "%.1f", listing.availableTons)} طن"
+                    OutlinedButton(
+                      onClick = {
+                        onSubmitMarketOrder(
+                          MarketplaceOrder(
+                            requesterName = requesterDisplayName,
+                            requesterRole = activeRole.code,
+                            providerId = pItem.userId,
+                            targetRole = pItem.providerRole,
+                            targetItemId = pItem.id,
+                            orderType =
+                              when (pItem.providerRole) {
+                                UserRole.TRANSPORTER.code -> "transport_quote"
+                                UserRole.STORAGE_PROVIDER.code -> "storage_reservation"
+                                UserRole.SUPPLIER.code -> "supply_order"
+                                else -> "service_quote"
+                              },
+                            itemTitle = pItem.title,
+                            wilaya = pItem.wilaya,
+                            quantity = 1.0,
+                            unitLabel = pItem.unitLabel,
+                            proposedPriceDzd = pItem.priceDzd,
+                            notes = "طلب مباشر من السوق العام",
+                          )
+                        )
+                      },
+                      modifier = Modifier.height(48.dp).testTag("order_partner_item_${pItem.id}"),
+                    ) {
+                      Text(
+                        RoleStrings.tr(
+                          language,
+                          ar = "طلب / حجز مباشر",
+                          fr = "Commander / Réserver",
+                          en = "Order / Reserve",
+                        )
+                      )
+                    }
+
+                    RateOperatorActionButton(
+                      targetIdForTag = pItem.id,
+                      hasExistingRatingByMe = hasMyRating,
+                      language = language,
+                      onClick = {
+                        pendingRatingTarget =
+                          PendingRatingTarget(
+                            targetUserId = pItem.userId,
+                            targetName = pItem.providerName.ifBlank { pItem.title },
+                            targetRole = providerRoleEnum,
+                            contextItemId = pItem.id,
+                          )
+                      },
                     )
-                    if (isMine && listing.status == "active") {
-                      OutlinedButton(
-                        onClick = { onMarkSold(listing.id) },
-                        modifier = Modifier.height(48.dp),
+
+                    OutlinedButton(
+                      onClick = {
+                        onToggleFavorite(
+                          FavoriteTargetType.OPERATOR,
+                          pItem.userId,
+                          pItem.userId,
+                          pItem.providerName.ifBlank { pItem.title },
+                          "${providerRoleEnum.localizedTitle(language)} • ${pItem.wilaya}",
+                          pItem.providerRole,
+                        )
+                      },
+                      shape = RoundedCornerShape(10.dp),
+                      modifier =
+                        Modifier.height(48.dp)
+                          .testTag("favorite_operator_partner_${pItem.id}"),
+                    ) {
+                      Icon(
+                        imageVector =
+                          if (isOperatorFav) Icons.Filled.Favorite
+                          else Icons.Filled.PersonAddAlt1,
+                        contentDescription = null,
+                        tint =
+                          if (isOperatorFav) Color(0xFFD32F2F)
+                          else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                      )
+                      Spacer(modifier = Modifier.width(6.dp))
+                      Text(
+                        if (isOperatorFav) {
+                          RoleStrings.tr(language, "متعامل مفضل ❤️", "Opérateur favori ❤️", "Saved Operator ❤️")
+                        } else {
+                          RoleStrings.tr(language, "تفضيل المتعامل", "Suivre l'opérateur", "Favorite Operator")
+                        }
+                      )
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // marketSubTab == 0: Harvest Listings
+      val activeCustomCrops =
+        (listingsState as? UiState.Success)
+          ?.data
+          ?.map { it.cropType.trim() }
+          ?.filter { CropVarietyType.isCustomCrop(it) }
+          ?.distinct()
+          .orEmpty()
+
+      FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        FilterChip(
+          selected = selectedCropFilter == null,
+          onClick = { selectedCropFilter = null },
+          label = { Text("الكل (Tous)") },
+        )
+        CropVarietyType.entries.forEach { crop ->
+          FilterChip(
+            selected = selectedCropFilter == crop.code,
+            onClick = {
+              selectedCropFilter = if (selectedCropFilter == crop.code) null else crop.code
+            },
+            label = { Text(crop.titleAr) },
+          )
+        }
+        activeCustomCrops.forEach { customCrop ->
+          FilterChip(
+            selected = selectedCropFilter.equals(customCrop, ignoreCase = true),
+            onClick = {
+              selectedCropFilter =
+                if (selectedCropFilter.equals(customCrop, ignoreCase = true)) null else customCrop
+            },
+            label = { Text(customCrop) },
+          )
+        }
+      }
+
+      when (listingsState) {
+        is UiState.Loading -> {
+          Box(
+            modifier = Modifier.fillMaxWidth().padding(48.dp),
+            contentAlignment = Alignment.Center,
+          ) {
+            CircularProgressIndicator()
+          }
+        }
+        is UiState.Error -> {
+          Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.errorContainer,
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(
+              text = listingsState.message,
+              color = MaterialTheme.colorScheme.onErrorContainer,
+              modifier = Modifier.padding(16.dp),
+            )
+          }
+        }
+        is UiState.Success -> {
+          val filtered =
+            listingsState.data.filter { l ->
+              val resolvedCropLabel = CropVarietyType.resolveDisplayTitleAr(l.cropType)
+              (selectedCropFilter == null || l.cropType.trim().equals(selectedCropFilter, ignoreCase = true)) &&
+                (searchQuery.isBlank() ||
+                  l.operatorName.contains(searchQuery, ignoreCase = true) ||
+                  l.wilaya.contains(searchQuery, ignoreCase = true) ||
+                  l.parcelReference.contains(searchQuery, ignoreCase = true) ||
+                  l.cropType.contains(searchQuery, ignoreCase = true) ||
+                  resolvedCropLabel.contains(searchQuery, ignoreCase = true))
+            }
+
+          if (filtered.isEmpty()) {
+            Card(
+              shape = RoundedCornerShape(16.dp),
+              colors =
+                CardDefaults.cardColors(
+                  containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                ),
+              modifier = Modifier.fillMaxWidth(),
+            ) {
+              Column(
+                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+              ) {
+                Icon(
+                  imageVector = Icons.Filled.Storefront,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(48.dp),
+                )
+                Text(
+                  text = "لا توجد إعلانات بيع نشطة مطابقة حالياً",
+                  style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                  text = "اربط قطعتك الفلاحية بإعلان بيع رسمي لعرض الكمية المتوقعة وسعر الكيلوغرام للمشترين والتعاونيات.",
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  textAlign = TextAlign.Center,
+                )
+                Button(onClick = onOpenPublishModal, modifier = Modifier.height(48.dp)) {
+                  Text("ربط القطعة الحالية بإعلان بيع")
+                }
+              }
+            }
+          } else {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+              filtered.forEach { listing ->
+                val cropTitleAr = CropVarietyType.resolveDisplayTitleAr(listing.cropType)
+                val isMine = listing.userId == currentUserId
+                val farmerReputation =
+                  reputationByUser[listing.userId]
+                    ?: UserReputationSummary(targetUserId = listing.userId)
+                val isListingFav =
+                  favoritedKeys.contains("${FavoriteTargetType.MARKET_LISTING.code}_${listing.id}")
+                val isOperatorFav =
+                  favoritedKeys.contains("${FavoriteTargetType.OPERATOR.code}_${listing.userId}")
+                val hasMyRating =
+                  publishedRatings.any {
+                    it.reviewerId == currentUserId && it.targetUserId == listing.userId
+                  }
+
+                Card(
+                  shape = RoundedCornerShape(16.dp),
+                  colors =
+                    CardDefaults.cardColors(
+                      containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                    ),
+                  elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                  modifier =
+                    Modifier.fillMaxWidth()
+                      .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        RoundedCornerShape(16.dp),
+                      )
+                      .testTag("market_listing_card_${listing.id}"),
+                ) {
+                  Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                  ) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                      Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                       ) {
                         Icon(
-                          Icons.Filled.CheckCircle,
+                          Icons.Filled.Verified,
                           contentDescription = null,
-                          modifier = Modifier.size(18.dp),
+                          tint = MaterialTheme.colorScheme.primary,
+                          modifier = Modifier.size(22.dp),
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("تأكيد البيع (Vendu)")
+                        Column {
+                          Text(
+                            text = "$cropTitleAr • ${listing.operatorName}",
+                            style = MaterialTheme.typography.titleLarge,
+                          )
+                          Text(
+                            text = "${listing.wilaya} • مرجع القطعة: ${listing.parcelReference}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                          )
+                        }
                       }
-                    } else if (!isMine && listing.status == "active") {
-                      Button(
-                        onClick = {
-                          onSubmitMarketOrder(
-                            MarketplaceOrder(
-                              requesterName = requesterDisplayName,
-                              requesterRole = activeRole.code,
-                              providerId = listing.userId,
-                              targetRole = UserRole.FARMER.code,
-                              targetItemId = listing.id,
-                              orderType = "purchase_request",
-                              itemTitle = "${crop.titleAr} (${listing.operatorName})",
-                              wilaya = listing.wilaya,
-                              quantity = listing.availableTons.coerceAtMost(5.0),
-                              unitLabel = "طن",
-                              proposedPriceDzd = listing.pricePerKgDzd * 1000.0,
-                              notes = "طلب شراء مباشر من السوق العام",
+
+                      Row(verticalAlignment = Alignment.CenterVertically) {
+                        FavoriteToggleIconButton(
+                          isFavorited = isListingFav,
+                          favoriteType = FavoriteTargetType.MARKET_LISTING,
+                          targetId = listing.id,
+                          language = language,
+                          onToggle = {
+                            onToggleFavorite(
+                              FavoriteTargetType.MARKET_LISTING,
+                              listing.id,
+                              listing.userId,
+                              "$cropTitleAr • ${listing.operatorName}",
+                              "${listing.wilaya} • ${listing.pricePerKgDzd.toInt()} د.ج/كغ (${String.format(Locale.US, "%.1f", listing.availableTons)} طن)",
+                              UserRole.FARMER.code,
                             )
-                          )
-                        },
-                        modifier = Modifier.height(48.dp).testTag("buy_harvest_${listing.id}"),
-                      ) {
-                        Text(
-                          RoleStrings.tr(
-                            language,
-                            ar = "طلب شراء المحصول",
-                            fr = "Acheter / Commander",
-                            en = "Purchase Request",
-                          )
+                          },
                         )
+                        Surface(
+                          shape = RoundedCornerShape(8.dp),
+                          color = MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                          Text(
+                            text = "${listing.pricePerKgDzd.toInt()} د.ج / كغ",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                          )
+                        }
+                      }
+                    }
+
+                    OperatorReputationBadge(summary = farmerReputation, language = language)
+
+                    FlowRow(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                      InfoTag(
+                        "الكمية المتوفرة: ${String.format(Locale.US, "%.1f", listing.availableTons)} طن"
+                      )
+
+                      FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                      ) {
+                        if (isMine && listing.status == "active") {
+                          OutlinedButton(
+                            onClick = { onMarkSold(listing.id) },
+                            modifier = Modifier.height(48.dp),
+                          ) {
+                            Icon(
+                              Icons.Filled.CheckCircle,
+                              contentDescription = null,
+                              modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("تأكيد البيع (Vendu)")
+                          }
+                        } else if (!isMine && listing.status == "active") {
+                          if (listing.userId.isNotBlank()) {
+                            RateOperatorActionButton(
+                              targetIdForTag = listing.id,
+                              hasExistingRatingByMe = hasMyRating,
+                              language = language,
+                              onClick = {
+                                pendingRatingTarget =
+                                  PendingRatingTarget(
+                                    targetUserId = listing.userId,
+                                    targetName = listing.operatorName,
+                                    targetRole = UserRole.FARMER,
+                                    contextItemId = listing.id,
+                                  )
+                              },
+                            )
+
+                            OutlinedButton(
+                              onClick = {
+                                onToggleFavorite(
+                                  FavoriteTargetType.OPERATOR,
+                                  listing.userId,
+                                  listing.userId,
+                                  listing.operatorName,
+                                  "${listing.wilaya} • الفلاح ($cropTitleAr)",
+                                  UserRole.FARMER.code,
+                                )
+                              },
+                              shape = RoundedCornerShape(10.dp),
+                              modifier =
+                                Modifier.height(48.dp)
+                                  .testTag("favorite_operator_listing_${listing.id}"),
+                            ) {
+                              Icon(
+                                imageVector =
+                                  if (isOperatorFav) Icons.Filled.Favorite
+                                  else Icons.Filled.PersonAddAlt1,
+                                contentDescription = null,
+                                tint =
+                                  if (isOperatorFav) Color(0xFFD32F2F)
+                                  else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                              )
+                              Spacer(modifier = Modifier.width(6.dp))
+                              Text(
+                                if (isOperatorFav) {
+                                  RoleStrings.tr(language, "فلاح مفضل ❤️", "Favori ❤️", "Saved ❤️")
+                                } else {
+                                  RoleStrings.tr(language, "تفضيل الفلاح", "Suivre", "Favorite Farmer")
+                                }
+                              )
+                            }
+                          }
+
+                          Button(
+                            onClick = {
+                              onSubmitMarketOrder(
+                                MarketplaceOrder(
+                                  requesterName = requesterDisplayName,
+                                  requesterRole = activeRole.code,
+                                  providerId = listing.userId,
+                                  targetRole = UserRole.FARMER.code,
+                                  targetItemId = listing.id,
+                                  orderType = "purchase_request",
+                                  itemTitle = "$cropTitleAr (${listing.operatorName})",
+                                  wilaya = listing.wilaya,
+                                  quantity = listing.availableTons.coerceAtMost(5.0),
+                                  unitLabel = "طن",
+                                  proposedPriceDzd = listing.pricePerKgDzd * 1000.0,
+                                  notes = "طلب شراء مباشر من السوق العام",
+                                )
+                              )
+                            },
+                            modifier = Modifier.height(48.dp).testTag("buy_harvest_${listing.id}"),
+                          ) {
+                            Text(
+                              RoleStrings.tr(
+                                language,
+                                ar = "طلب شراء المحصول",
+                                fr = "Acheter / Commander",
+                                en = "Purchase Request",
+                              )
+                            )
+                          }
+                        }
                       }
                     }
                   }
@@ -763,6 +1225,37 @@ fun PublicMarketScreen(
         }
       }
     }
+  }
+
+  val ratingTarget = pendingRatingTarget
+  if (ratingTarget != null) {
+    val targetSummary =
+      reputationByUser[ratingTarget.targetUserId]
+        ?: UserReputationSummary(targetUserId = ratingTarget.targetUserId)
+    val myExisting =
+      publishedRatings.firstOrNull {
+        it.reviewerId == currentUserId && it.targetUserId == ratingTarget.targetUserId
+      }
+    RateOperatorDialog(
+      targetUserId = ratingTarget.targetUserId,
+      targetName = ratingTarget.targetName,
+      targetRole = ratingTarget.targetRole,
+      language = language,
+      reputationSummary = targetSummary,
+      existingMyRating = myExisting,
+      onDismiss = { pendingRatingTarget = null },
+      onSubmitRating = { stars, comment ->
+        onSubmitRating(
+          ratingTarget.targetUserId,
+          ratingTarget.targetName,
+          ratingTarget.targetRole.code,
+          stars,
+          comment,
+          ratingTarget.contextItemId,
+        )
+        pendingRatingTarget = null
+      },
+    )
   }
 }
 
@@ -993,28 +1486,57 @@ fun PublishMarketDialog(
   parcel: AgriculturalParcel,
   defaultOperatorName: String,
   onDismiss: () -> Unit,
-  onConfirmPublish: (String, Double, Double) -> Unit,
+  onConfirmPublish: (String, Double, Double, String) -> Unit,
 ) {
-  val crop = CropVarietyType.fromCode(parcel.mainCrop)
+  val initialCropText =
+    remember(parcel.id, parcel.mainCrop) {
+      if (parcel.mainCrop.isBlank()) {
+        ""
+      } else {
+        CropVarietyType.resolveDisplayTitleAr(parcel.mainCrop, "")
+      }
+    }
+  val defaultPriceKg =
+    remember(parcel.mainCrop) { CropVarietyType.resolveDefaultPriceKgDzd(parcel.mainCrop) }
   val defaultTons =
     remember(parcel.areaHectares, parcel.estimatedYieldTonsPerHa) {
-      String.format(Locale.US, "%.1f", (parcel.areaHectares * parcel.estimatedYieldTonsPerHa).coerceAtLeast(1.0))
+      String.format(
+        Locale.US,
+        "%.1f",
+        (parcel.areaHectares * parcel.estimatedYieldTonsPerHa).coerceAtLeast(1.0),
+      )
     }
+  var cropNameInput by remember(parcel.id, parcel.mainCrop) { mutableStateOf(initialCropText) }
   var operatorName by remember { mutableStateOf(defaultOperatorName) }
   var tonsInput by remember { mutableStateOf(defaultTons) }
-  var priceInput by remember {
-    mutableStateOf(String.format(Locale.US, "%.0f", crop.defaultPriceKgDzd))
-  }
+  var priceInput by
+    remember(defaultPriceKg) { mutableStateOf(String.format(Locale.US, "%.0f", defaultPriceKg)) }
 
   AlertDialog(
     onDismissRequest = onDismiss,
     title = { Text("ربط القطعة بإعلان بيع في السوق العام") },
     text = {
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
         Text(
-          text = "سيتم توثيق العرض تلقائياً بمرجع القطعة (${parcel.ilotNumber}) ومحصول (${crop.titleAr}).",
+          text =
+            if (cropNameInput.trim().isEmpty()) {
+              "اكتب اسم منتوجك الفلاحي الخاص بحرية ليتم توثيق العرض بمرجع القطعة (${parcel.ilotNumber})."
+            } else {
+              "سيتم توثيق العرض تلقائياً بمرجع القطعة (${parcel.ilotNumber}) ومنتوج (${cropNameInput.trim()})."
+            },
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+          value = cropNameInput,
+          onValueChange = { cropNameInput = it.take(80) },
+          label = { Text("اسم المنتوج / المحصول المعروض للبيع") },
+          placeholder = { Text("مثال: قمح صلب، بطيخ أحمر، ثوم، دقلة نور...") },
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth().testTag("publish_market_crop_input"),
         )
         OutlinedTextField(
           value = operatorName,
@@ -1044,10 +1566,19 @@ fun PublishMarketDialog(
     confirmButton = {
       Button(
         onClick = {
+          val trimmedCrop = cropNameInput.trim()
+          val matchedPresetCode =
+            CropVarietyType.entries
+              .firstOrNull {
+                it.titleAr == trimmedCrop || it.code.equals(trimmedCrop, ignoreCase = true)
+              }
+              ?.code
+          val resolvedCropToSave = matchedPresetCode ?: trimmedCrop
           val tons = tonsInput.replace(",", ".").toDoubleOrNull() ?: 10.0
-          val price = priceInput.replace(",", ".").toDoubleOrNull() ?: crop.defaultPriceKgDzd
-          onConfirmPublish(operatorName, tons, price)
+          val price = priceInput.replace(",", ".").toDoubleOrNull() ?: defaultPriceKg
+          onConfirmPublish(operatorName, tons, price, resolvedCropToSave)
         },
+        enabled = cropNameInput.trim().isNotEmpty(),
         modifier = Modifier.testTag("confirm_market_publish_button"),
       ) {
         Text("نشر في السوق العام")

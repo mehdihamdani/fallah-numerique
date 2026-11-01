@@ -1,5 +1,7 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -11,6 +13,8 @@ import com.example.R
 import com.example.data.model.AgriculturalParcel
 import com.example.data.model.AppLanguage
 import com.example.data.model.CropVarietyType
+import com.example.data.model.FavoriteTargetType
+import com.example.data.model.IdentityVerificationData
 import com.example.data.model.MapInteractionTool
 import com.example.data.model.MapLayerMode
 import com.example.data.model.MarketListing
@@ -24,13 +28,18 @@ import com.example.data.model.ServiceBooking
 import com.example.data.model.SoilTextureType
 import com.example.data.model.TransportRequest
 import com.example.data.model.UserAccountProfile
+import com.example.data.model.UserFavoriteRecord
+import com.example.data.model.UserRatingRecord
+import com.example.data.model.UserReputationSummary
 import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
 import com.example.data.network.AgriWeatherReport
 import com.example.data.network.OpenMeteoAgriWeatherClient
 import com.example.data.offline.FellahOfflineDatabase
+import com.example.data.offline.LocalPlotRepository
 import com.example.data.offline.OfflineMapCacheRepository
 import com.example.data.offline.OfflineMapRegionEntity
+import com.example.data.offline.SavedPlotWithCoordinates
 import com.example.data.repository.FellahRepository
 import com.example.data.repository.RoleAccountRepository
 import com.example.util.GeoCoordinateMapper
@@ -95,6 +104,8 @@ data class ParcelEditorState(
   val activeRole: UserRole = UserRole.FARMER,
   val isOnboardingSaving: Boolean = false,
   val onboardingErrorMessage: String? = null,
+  val activeLocalPlotId: Long = 0L,
+  val customUserCrops: List<String> = emptyList(),
 ) {
   val isEffectiveOffline: Boolean
     get() = !isNetworkConnected || isManualOfflineMode
@@ -107,15 +118,27 @@ class FellahViewModel(
   private val offlineMapCacheRepository: OfflineMapCacheRepository? = null,
   connectivityFlow: Flow<Boolean> = flowOf(true),
   private val roleRepository: RoleAccountRepository? = null,
+  private val localPlotRepository: LocalPlotRepository? = null,
+  private val customCropPrefs: SharedPreferences? = null,
 ) : ViewModel() {
 
-  private val _editorState = MutableStateFlow(ParcelEditorState())
+  private val _editorState =
+    MutableStateFlow(
+      ParcelEditorState(customUserCrops = loadPersistedCustomCrops(customCropPrefs))
+    )
   val editorState: StateFlow<ParcelEditorState> = _editorState.asStateFlow()
   private var hasAttemptedLegacyFarmerAutoMigration = false
   private var hasAppliedInitialLanding = false
 
   val offlineRegionsState: StateFlow<List<OfflineMapRegionEntity>> =
     (offlineMapCacheRepository?.downloadedRegions ?: flowOf(emptyList())).stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+      initialValue = emptyList(),
+    )
+
+  val localSavedPlotsState: StateFlow<List<SavedPlotWithCoordinates>> =
+    (localPlotRepository?.savedPlots ?: flowOf(emptyList())).stateIn(
       scope = viewModelScope,
       started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
       initialValue = emptyList(),
@@ -142,19 +165,35 @@ class FellahViewModel(
     repository
       .observeUserParcels(currentUserId)
       .map<List<AgriculturalParcel>, UiState<List<AgriculturalParcel>>> { parcels ->
+        val cloudCustomCrops =
+          parcels
+            .map { it.mainCrop.trim() }
+            .filter { CropVarietyType.isCustomCrop(it) }
+            .distinct()
         if (!_editorState.value.hasLoadedInitialCloudParcel && parcels.isNotEmpty()) {
           _editorState.update { state ->
+            val mergedCustom = (state.customUserCrops + cloudCustomCrops).distinct().take(24)
             if (!state.hasLoadedInitialCloudParcel && state.activeParcel.id.isBlank()) {
               state.copy(
                 activeParcel = parcels.first(),
                 hasLoadedInitialCloudParcel = true,
+                customUserCrops = mergedCustom,
               )
             } else {
-              state.copy(hasLoadedInitialCloudParcel = true)
+              state.copy(
+                hasLoadedInitialCloudParcel = true,
+                customUserCrops = mergedCustom,
+              )
             }
           }
-        } else if (!_editorState.value.hasLoadedInitialCloudParcel) {
-          _editorState.update { it.copy(hasLoadedInitialCloudParcel = true) }
+        } else {
+          _editorState.update { state ->
+            val mergedCustom = (state.customUserCrops + cloudCustomCrops).distinct().take(24)
+            state.copy(
+              hasLoadedInitialCloudParcel = true,
+              customUserCrops = mergedCustom,
+            )
+          }
         }
         UiState.Success(parcels)
       }
@@ -330,6 +369,33 @@ class FellahViewModel(
         initialValue = emptyList(),
       )
 
+  val publishedRatingsState: StateFlow<List<UserRatingRecord>> =
+    (roleRepository?.observePublishedRatings() ?: flowOf(emptyList()))
+      .catch { emit(emptyList()) }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyList(),
+      )
+
+  val reputationByUserState: StateFlow<Map<String, UserReputationSummary>> =
+    publishedRatingsState
+      .map { UserReputationSummary.buildReputationMap(it) }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyMap(),
+      )
+
+  val userFavoritesState: StateFlow<List<UserFavoriteRecord>> =
+    (roleRepository?.observeUserFavorites(currentUserId) ?: flowOf(emptyList()))
+      .catch { emit(emptyList()) }
+      .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyList(),
+      )
+
   init {
     // Backward-compatible migration: if an existing farmer already has saved parcels in /parcels
     // from before multi-role onboarding existed, auto-initialize their /users/{uid} profile as farmer!
@@ -398,14 +464,17 @@ class FellahViewModel(
           )
         }
         MapInteractionTool.DRAW_POLYGON -> {
-          val currentPts = state.activeParcel.polygonPoints.map { NormalizedPoint.decode(it) }
+          val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
+          val currentPts =
+            GeoCoordinateMapper.decodePolygonToNormalized(state.activeParcel.polygonPoints, center)
           val updatedPts =
-            if (currentPts.size >= 16) {
+            if (currentPts.size >= 20) {
               currentPts.drop(1) + point
             } else {
               currentPts + point
             }
-          val area = NormalizedPoint.computeAreaHectares(updatedPts)
+          val area =
+            if (updatedPts.size >= 3) NormalizedPoint.computeAreaHectares(updatedPts) else 0.0
           state.copy(
             activeParcel =
               state.activeParcel.copy(
@@ -421,10 +490,13 @@ class FellahViewModel(
 
   fun updatePolygonVertex(index: Int, newPoint: NormalizedPoint) {
     _editorState.update { state ->
-      val pts = state.activeParcel.polygonPoints.map { NormalizedPoint.decode(it) }.toMutableList()
+      val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
+      val pts =
+        GeoCoordinateMapper.decodePolygonToNormalized(state.activeParcel.polygonPoints, center)
+          .toMutableList()
       if (index in pts.indices) {
         pts[index] = newPoint
-        val area = NormalizedPoint.computeAreaHectares(pts)
+        val area = if (pts.size >= 3) NormalizedPoint.computeAreaHectares(pts) else 0.0
         state.copy(
           activeParcel =
             state.activeParcel.copy(
@@ -439,17 +511,17 @@ class FellahViewModel(
   }
 
   /**
-   * Handles taps directly on live satellite map [GeoLatLng] coordinates for drawing WGS84 parcel
-   * boundaries or placing the irrigation borehole (Forage) in keyless demo mode.
+   * Handles taps directly on live Osmdroid map [GeoLatLng] coordinates for drawing exact WGS84
+   * parcel boundaries or placing the irrigation borehole (Forage).
    */
   fun onGoogleMapLatLngTapped(latLng: GeoLatLng) {
     _editorState.update { state ->
       val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
-      val mappedNorm = GeoCoordinateMapper.latLngToNormalized(latLng, center)
       when (state.mapTool) {
         MapInteractionTool.PLACE_FORAGE -> {
           state.copy(
-            activeParcel = state.activeParcel.copy(wellPoint = mappedNorm.encode()),
+            activeParcel =
+              state.activeParcel.copy(wellPoint = GeoCoordinateMapper.encodeGeoPoint(latLng)),
             mapTool = MapInteractionTool.VIEW,
             feedbackMessage =
               "تم تثبيت نقطة السقي على الخريطة الحية (${GeoCoordinateMapper.formatDecimalLabel(latLng.latitude, latLng.longitude)})",
@@ -457,17 +529,23 @@ class FellahViewModel(
           )
         }
         MapInteractionTool.DRAW_POLYGON -> {
-          val currentPts = state.activeParcel.polygonPoints.map { NormalizedPoint.decode(it) }
-          val updatedPts =
-            if (currentPts.size >= 16) currentPts.drop(1) + mappedNorm else currentPts + mappedNorm
-          val latLngVertices =
-            updatedPts.map { GeoCoordinateMapper.normalizedToLatLng(it, center) }
-          val area = GeoCoordinateMapper.computeGeodesicAreaHectares(latLngVertices)
+          val currentLatLngs =
+            GeoCoordinateMapper.decodePolygonToLatLng(state.activeParcel.polygonPoints, center)
+          val updatedLatLngs =
+            if (currentLatLngs.size >= 20) {
+              currentLatLngs.drop(1) + latLng
+            } else {
+              currentLatLngs + latLng
+            }
+          val area = GeoCoordinateMapper.computeGeodesicAreaHectares(updatedLatLngs)
+          val centroid = GeoCoordinateMapper.computeCentroid(updatedLatLngs, latLng)
           state.copy(
             activeParcel =
               state.activeParcel.copy(
-                polygonPoints = updatedPts.map { it.encode() },
+                polygonPoints = updatedLatLngs.map { GeoCoordinateMapper.encodeGeoPoint(it) },
                 areaHectares = area,
+                coordinatesLabel =
+                  GeoCoordinateMapper.formatDecimalLabel(centroid.latitude, centroid.longitude),
               )
           )
         }
@@ -477,26 +555,92 @@ class FellahViewModel(
   }
 
   /**
-   * Handles dragging a polygon vertex marker on the live satellite map in real time.
+   * Handles dragging a polygon vertex marker on the live Osmdroid map in real time.
    */
   fun onGoogleMapVertexDragged(index: Int, newLatLng: GeoLatLng) {
     _editorState.update { state ->
       val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
-      val pts = state.activeParcel.polygonPoints.map { NormalizedPoint.decode(it) }.toMutableList()
-      if (index in pts.indices) {
-        pts[index] = GeoCoordinateMapper.latLngToNormalized(newLatLng, center)
-        val latLngVertices = pts.map { GeoCoordinateMapper.normalizedToLatLng(it, center) }
-        val area = GeoCoordinateMapper.computeGeodesicAreaHectares(latLngVertices)
+      val latLngs =
+        GeoCoordinateMapper.decodePolygonToLatLng(state.activeParcel.polygonPoints, center)
+          .toMutableList()
+      if (index in latLngs.indices) {
+        latLngs[index] = newLatLng
+        val area = GeoCoordinateMapper.computeGeodesicAreaHectares(latLngs)
+        val centroid = GeoCoordinateMapper.computeCentroid(latLngs, newLatLng)
         state.copy(
           activeParcel =
             state.activeParcel.copy(
-              polygonPoints = pts.map { it.encode() },
+              polygonPoints = latLngs.map { GeoCoordinateMapper.encodeGeoPoint(it) },
               areaHectares = area,
+              coordinatesLabel =
+                GeoCoordinateMapper.formatDecimalLabel(centroid.latitude, centroid.longitude),
             )
         )
       } else {
         state
       }
+    }
+  }
+
+  fun undoLastPolygonVertex() {
+    _editorState.update { state ->
+      val currentRaw = state.activeParcel.polygonPoints
+      if (currentRaw.isEmpty()) return@update state
+      val updatedRaw = currentRaw.dropLast(1)
+      val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
+      val updatedLatLngs = GeoCoordinateMapper.decodePolygonToLatLng(updatedRaw, center)
+      val area = GeoCoordinateMapper.computeGeodesicAreaHectares(updatedLatLngs)
+      state.copy(
+        activeParcel =
+          state.activeParcel.copy(
+            polygonPoints = updatedRaw,
+            areaHectares = area,
+          ),
+        feedbackMessage = "تم التراجع عن آخر نقطة حدودية (${updatedRaw.size} نقاط متبقية)",
+        isErrorFeedback = false,
+      )
+    }
+  }
+
+  fun clearPolygonVerticesForDrawing() {
+    _editorState.update { state ->
+      state.copy(
+        mapTool = MapInteractionTool.DRAW_POLYGON,
+        activeParcel =
+          state.activeParcel.copy(
+            polygonPoints = emptyList(),
+            areaHectares = 0.0,
+          ),
+        feedbackMessage =
+          "وضع الرسم الجديد نشط: اضغط على الخريطة لوضع النقاط الحدودية للقطعة الفلاحية (3 نقاط على الأقل)",
+        isErrorFeedback = false,
+      )
+    }
+  }
+
+  fun removePolygonVertexAt(index: Int) {
+    _editorState.update { state ->
+      val currentRaw = state.activeParcel.polygonPoints.toMutableList()
+      if (index !in currentRaw.indices) return@update state
+      currentRaw.removeAt(index)
+      val center = GeoCoordinateMapper.parseCenterCoordinates(state.activeParcel.coordinatesLabel)
+      val updatedLatLngs = GeoCoordinateMapper.decodePolygonToLatLng(currentRaw, center)
+      val area = GeoCoordinateMapper.computeGeodesicAreaHectares(updatedLatLngs)
+      state.copy(
+        activeParcel =
+          state.activeParcel.copy(
+            polygonPoints = currentRaw,
+            areaHectares = area,
+          ),
+        feedbackMessage = "تم حذف النقطة R${index + 1} من حدود القطعة",
+        isErrorFeedback = false,
+      )
+    }
+  }
+
+  fun updatePlotNameQuick(newName: String) {
+    _editorState.update { state ->
+      state.copy(activeParcel = state.activeParcel.copy(name = newName.take(110)))
     }
   }
 
@@ -771,12 +915,69 @@ class FellahViewModel(
 
   fun selectMainCrop(crop: CropVarietyType) {
     _editorState.update { state ->
+      if (state.activeParcel.mainCrop == crop.code) {
+        // Clicking an already-selected preset clears mainCrop back to an empty field
+        state.copy(
+          activeParcel = state.activeParcel.copy(mainCrop = ""),
+        )
+      } else {
+        state.copy(
+          activeParcel =
+            state.activeParcel.copy(
+              mainCrop = crop.code,
+              estimatedYieldTonsPerHa = crop.defaultYieldTonsHa,
+            )
+        )
+      }
+    }
+  }
+
+  fun updateCustomMainCrop(cropText: String) {
+    val bounded = cropText.take(80)
+    _editorState.update { state ->
+      state.copy(activeParcel = state.activeParcel.copy(mainCrop = bounded))
+    }
+  }
+
+  fun addCustomCropToSavedList(cropText: String) {
+    val cleaned = cropText.trim().take(80)
+    if (cleaned.isEmpty()) {
+      _editorState.update { state ->
+        state.copy(
+          feedbackMessage = "اكتب اسم المنتوج الخاص بك في الخانة أولاً لإضافته وحفظه",
+          isErrorFeedback = true,
+        )
+      }
+      return
+    }
+    _editorState.update { state ->
+      val updatedList =
+        if (state.customUserCrops.any { it.equals(cleaned, ignoreCase = true) }) {
+          state.customUserCrops
+        } else {
+          (listOf(cleaned) + state.customUserCrops).take(24)
+        }
+      persistCustomCrops(customCropPrefs, updatedList)
       state.copy(
-        activeParcel =
-          state.activeParcel.copy(
-            mainCrop = crop.code,
-            estimatedYieldTonsPerHa = crop.defaultYieldTonsHa,
-          )
+        activeParcel = state.activeParcel.copy(mainCrop = cleaned),
+        customUserCrops = updatedList,
+        feedbackMessage = "تم اعتماد وإضافة منتوجك الخاص: $cleaned",
+        isErrorFeedback = false,
+      )
+    }
+  }
+
+  fun removeSavedCustomCrop(cropText: String) {
+    val cleaned = cropText.trim()
+    _editorState.update { state ->
+      val updatedList = state.customUserCrops.filterNot { it.equals(cleaned, ignoreCase = true) }
+      persistCustomCrops(customCropPrefs, updatedList)
+      val nextMainCrop =
+        if (state.activeParcel.mainCrop.trim().equals(cleaned, ignoreCase = true)) ""
+        else state.activeParcel.mainCrop
+      state.copy(
+        activeParcel = state.activeParcel.copy(mainCrop = nextMainCrop),
+        customUserCrops = updatedList,
       )
     }
   }
@@ -863,9 +1064,11 @@ class FellahViewModel(
           AgriculturalParcel(
             name = "قطعة فلاحية جديدة",
             ilotNumber = "Ilot N ${(100..299).random()} / P-${(10..99).random()}",
+            mainCrop = "",
           ),
+        activeLocalPlotId = 0L,
         activeSection = WorkspaceSection.PARCEL_DELINEATION,
-        feedbackMessage = "تم فتح استمارة قطعة فلاحية جديدة جاهزة للترسيم",
+        feedbackMessage = "تم فتح استمارة قطعة فلاحية جديدة بخانة محصول رئيسي فارغة جاهزة لإضافة منتوجك",
         isErrorFeedback = false,
       )
     }
@@ -875,6 +1078,7 @@ class FellahViewModel(
     _editorState.update { state ->
       state.copy(
         activeParcel = parcel,
+        activeLocalPlotId = 0L,
         activeSection = WorkspaceSection.PARCEL_DELINEATION,
         feedbackMessage = "تم تحميل القطعة: ${parcel.name} (${parcel.ilotNumber})",
         isErrorFeedback = false,
@@ -882,26 +1086,124 @@ class FellahViewModel(
     }
   }
 
+  fun loadLocalSavedPlot(savedPlot: SavedPlotWithCoordinates) {
+    _editorState.update { state ->
+      val restoredParcel = savedPlot.toAgriculturalParcel(state.activeParcel)
+      state.copy(
+        activeParcel = restoredParcel,
+        activeLocalPlotId = savedPlot.plot.localId,
+        mapTool = MapInteractionTool.VIEW,
+        activeSection = WorkspaceSection.PARCEL_DELINEATION,
+        feedbackMessage =
+          "تم استرجاع القطعة المحفوظة محلياً: ${savedPlot.plot.plotName} (${"%.2f".format(savedPlot.plot.areaHectares)} Ha)",
+        isErrorFeedback = false,
+      )
+    }
+  }
+
+  fun renameLocalSavedPlot(localId: Long, customName: String) {
+    val cleanName = customName.trim().take(120)
+    if (cleanName.isEmpty()) return
+    viewModelScope.launch {
+      localPlotRepository?.renameSavedPlot(localId, cleanName)
+      _editorState.update { state ->
+        val updatedActive =
+          if (state.activeLocalPlotId == localId) state.activeParcel.copy(name = cleanName)
+          else state.activeParcel
+        state.copy(
+          activeParcel = updatedActive,
+          feedbackMessage = "تم تحديث اسم القطعة المحفوظة محلياً إلى: $cleanName",
+          isErrorFeedback = false,
+        )
+      }
+    }
+  }
+
+  fun deleteLocalSavedPlot(localId: Long) {
+    viewModelScope.launch {
+      localPlotRepository?.deleteSavedPlot(localId)
+      _editorState.update { state ->
+        state.copy(
+          activeLocalPlotId = if (state.activeLocalPlotId == localId) 0L else state.activeLocalPlotId,
+          feedbackMessage = "تم حذف القطعة من قاعدة البيانات المحلية (Room)",
+          isErrorFeedback = false,
+        )
+      }
+    }
+  }
+
   fun saveCurrentParcel() {
     val stateSnapshot = _editorState.value
-    val current = stateSnapshot.activeParcel
+    val rawParcel = stateSnapshot.activeParcel
+    if (rawParcel.polygonPoints.size < 3) {
+      _editorState.update {
+        it.copy(
+          isSaving = false,
+          mapTool = MapInteractionTool.DRAW_POLYGON,
+          feedbackMessage =
+            "يرجى رسم 3 نقاط حدودية على الأقل على الخريطة لإغلاق المضلع وحفظ القطعة الفلاحية",
+          isErrorFeedback = true,
+        )
+      }
+      return
+    }
+    val center = GeoCoordinateMapper.parseCenterCoordinates(rawParcel.coordinatesLabel)
+    val latLngs = GeoCoordinateMapper.decodePolygonToLatLng(rawParcel.polygonPoints, center)
+    val safeArea =
+      if (rawParcel.areaHectares >= 0.01) rawParcel.areaHectares
+      else GeoCoordinateMapper.computeGeodesicAreaHectares(latLngs).coerceAtLeast(0.01)
+    val current =
+      rawParcel.copy(
+        name = rawParcel.name.trim().ifBlank { "قطعة فلاحية - ${rawParcel.commune}" }.take(110),
+        polygonPoints = rawParcel.polygonPoints.take(20),
+        areaHectares = safeArea,
+      )
     val isOffline = stateSnapshot.isEffectiveOffline
-    _editorState.update { it.copy(isSaving = true, feedbackMessage = null) }
+    _editorState.update {
+      it.copy(
+        activeParcel = current,
+        mapTool = MapInteractionTool.VIEW,
+        isSaving = true,
+        feedbackMessage = null,
+      )
+    }
     viewModelScope.launch {
+      // 1. Always persist coordinates, geodesic area measurements, and custom plot name locally in Room
+      val localSavedId =
+        runCatching {
+            localPlotRepository?.savePlotFromParcel(
+              parcel = current,
+              existingLocalId = stateSnapshot.activeLocalPlotId,
+            )
+          }
+          .getOrNull() ?: stateSnapshot.activeLocalPlotId
+
+      // 2. Sync to Cloud Firestore (or offline queue)
       val result = repository.saveParcel(current, allowOfflineQueue = isOffline)
       result
         .onSuccess { savedId ->
           val refreshed =
             if (!isOffline) repository.getParcelById(savedId).getOrNull() else null
+          val finalParcel =
+            refreshed ?: current.copy(id = savedId, userId = currentUserId)
+          if (localSavedId > 0L) {
+            runCatching {
+              localPlotRepository?.savePlotFromParcel(
+                parcel = finalParcel,
+                existingLocalId = localSavedId,
+              )
+            }
+          }
           _editorState.update { state ->
             state.copy(
-              activeParcel = refreshed ?: state.activeParcel.copy(id = savedId, userId = currentUserId),
+              activeParcel = finalParcel,
+              activeLocalPlotId = localSavedId,
               isSaving = false,
               feedbackMessage =
                 if (isOffline) {
-                  "تم حفظ القطعة الفلاحية محلياً في وضع أوفلاين (${"%.2f".format(current.areaHectares)} Ha) — ستتم المزامنة تلقائياً عند توفر الشبكة"
+                  "تم حفظ القطعة محلياً في قاعدة بيانات الجهاز (${"%.2f".format(current.areaHectares)} Ha) — ستتم المزامنة تلقائياً عند توفر الشبكة"
                 } else {
-                  "تم حفظ وتثبيت القطعة الفلاحية (${"%.2f".format(current.areaHectares)} Ha) في السجل السحابي بنجاح"
+                  "تم حفظ وتثبيت القطعة (${"%.2f".format(current.areaHectares)} Ha) محلياً وفي السجل السحابي بنجاح"
                 },
               isErrorFeedback = false,
             )
@@ -910,9 +1212,15 @@ class FellahViewModel(
         .onFailure { error ->
           _editorState.update { state ->
             state.copy(
+              activeLocalPlotId = localSavedId,
               isSaving = false,
-              feedbackMessage = error.localizedMessage ?: "تعذر حفظ القطعة الفلاحية",
-              isErrorFeedback = true,
+              feedbackMessage =
+                if (localSavedId > 0L) {
+                  "تم حفظ إحداثيات ومساحة القطعة محلياً على الجهاز (${"%.2f".format(current.areaHectares)} Ha)؛ تعذرت المزامنة السحابية حالياً"
+                } else {
+                  error.localizedMessage ?: "تعذر حفظ القطعة الفلاحية"
+                },
+              isErrorFeedback = localSavedId <= 0L,
             )
           }
         }
@@ -949,10 +1257,41 @@ class FellahViewModel(
     operatorName: String,
     availableTons: Double,
     pricePerKgDzd: Double,
+    customCropOverride: String = "",
   ) {
-    _editorState.update { it.copy(isSaving = true) }
+    val resolvedCrop =
+      customCropOverride.trim().ifBlank { _editorState.value.activeParcel.mainCrop.trim() }.take(80)
+    if (resolvedCrop.isBlank()) {
+      _editorState.update {
+        it.copy(
+          isSaving = false,
+          feedbackMessage = "يرجى كتابة أو اختيار اسم المنتوج الفلاحي قبل نشر إعلان البيع في السوق العام",
+          isErrorFeedback = true,
+        )
+      }
+      return
+    }
+
+    _editorState.update { state ->
+      val updatedList =
+        if (
+          CropVarietyType.isCustomCrop(resolvedCrop) &&
+            state.customUserCrops.none { it.equals(resolvedCrop, ignoreCase = true) }
+        ) {
+          (listOf(resolvedCrop) + state.customUserCrops).take(24).also {
+            persistCustomCrops(customCropPrefs, it)
+          }
+        } else {
+          state.customUserCrops
+        }
+      state.copy(
+        isSaving = true,
+        activeParcel = state.activeParcel.copy(mainCrop = resolvedCrop),
+        customUserCrops = updatedList,
+      )
+    }
     viewModelScope.launch {
-      val currentParcel = _editorState.value.activeParcel
+      val currentParcel = _editorState.value.activeParcel.copy(mainCrop = resolvedCrop)
       val ensuredParcelId =
         if (currentParcel.id.isBlank()) {
           val saveRes = repository.saveParcel(currentParcel)
@@ -968,6 +1307,9 @@ class FellahViewModel(
           }
           saveRes.getOrThrow()
         } else {
+          if (currentParcel.mainCrop != resolvedCrop) {
+            repository.saveParcel(currentParcel)
+          }
           currentParcel.id
         }
 
@@ -976,7 +1318,7 @@ class FellahViewModel(
           parcelId = ensuredParcelId,
           operatorName = operatorName.ifBlank { "Coopérative El Baraka" }.take(95),
           parcelReference = currentParcel.ilotNumber.take(75),
-          cropType = currentParcel.mainCrop,
+          cropType = resolvedCrop,
           wilaya = currentParcel.wilaya.take(75),
           availableTons = availableTons.coerceIn(0.1, 99999.0),
           pricePerKgDzd = pricePerKgDzd.coerceIn(1.0, 99999.0),
@@ -990,7 +1332,11 @@ class FellahViewModel(
             state.copy(
               activeParcel =
                 refreshed
-                  ?: state.activeParcel.copy(id = ensuredParcelId, linkedToMarket = true),
+                  ?: state.activeParcel.copy(
+                    id = ensuredParcelId,
+                    mainCrop = resolvedCrop,
+                    linkedToMarket = true,
+                  ),
               isSaving = false,
               showPublishMarketDialog = false,
               activeSection = WorkspaceSection.PUBLIC_MARKET,
@@ -1236,17 +1582,32 @@ class FellahViewModel(
     selectedRoles: List<String>,
     defaultRole: String,
     step: Int,
+    identityVerification: IdentityVerificationData? = null,
+    phoneNumber: String? = null,
+    phoneVerified: Boolean? = null,
   ) {
     val repo = roleRepository ?: return
+    val cleanTypedName = displayName.trim()
+    val effectiveName =
+      when {
+        cleanTypedName.isNotBlank() && cleanTypedName != "Opérateur Fellah Numérique" ->
+          cleanTypedName
+        !identityVerification?.nationalIdHolderName.isNullOrBlank() ->
+          identityVerification!!.nationalIdHolderName
+        else -> cleanTypedName.ifBlank { "Opérateur Fellah Numérique" }
+      }
     viewModelScope.launch {
       repo.saveOnboardingProgress(
-        displayName = displayName,
+        displayName = effectiveName,
         email = email,
         preferredLanguage = _editorState.value.language,
         selectedRoleCodes = selectedRoles,
         chosenDefaultRole = defaultRole,
         step = step,
         completed = false,
+        identityVerification = identityVerification,
+        phoneNumber = phoneNumber,
+        phoneVerified = phoneVerified,
       )
     }
   }
@@ -1258,19 +1619,34 @@ class FellahViewModel(
     defaultRole: String,
     profilesToSave: List<RoleSpecificProfile>,
     intendedSectionAfterLogin: WorkspaceSection? = null,
+    identityVerification: IdentityVerificationData? = null,
+    phoneNumber: String? = null,
+    phoneVerified: Boolean? = null,
   ) {
     val repo = roleRepository ?: return
+    val cleanTypedName = displayName.trim()
+    val effectiveName =
+      when {
+        cleanTypedName.isNotBlank() && cleanTypedName != "Opérateur Fellah Numérique" ->
+          cleanTypedName
+        !identityVerification?.nationalIdHolderName.isNullOrBlank() ->
+          identityVerification!!.nationalIdHolderName
+        else -> cleanTypedName.ifBlank { "Opérateur Fellah Numérique" }
+      }
     _editorState.update { it.copy(isOnboardingSaving = true, onboardingErrorMessage = null) }
     viewModelScope.launch {
       val result =
         repo.saveOnboardingProgress(
-          displayName = displayName,
+          displayName = effectiveName,
           email = email,
           preferredLanguage = _editorState.value.language,
           selectedRoleCodes = selectedRoles,
           chosenDefaultRole = defaultRole,
           step = 5,
           completed = true,
+          identityVerification = identityVerification,
+          phoneNumber = phoneNumber,
+          phoneVerified = phoneVerified,
         )
       result
         .onSuccess { savedAccount ->
@@ -1298,6 +1674,35 @@ class FellahViewModel(
             it.copy(
               isOnboardingSaving = false,
               onboardingErrorMessage = err.localizedMessage ?: "تعذر حفظ إعدادات الأنشطة المهنية",
+            )
+          }
+        }
+    }
+  }
+
+  fun updateIdentityVerification(identityVerification: IdentityVerificationData) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo
+        .updateIdentityDocuments(identityVerification)
+        .onSuccess {
+          _editorState.update { state ->
+            state.copy(
+              feedbackMessage =
+                when (state.language) {
+                  AppLanguage.AR -> "تم حفظ بيانات بطاقة التعريف الوطنية وبطاقة الفلاح بنجاح"
+                  AppLanguage.FR -> "Documents d'identité et carte d'agriculteur mis à jour"
+                  AppLanguage.EN -> "National ID & Farmer Card verification saved"
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر تحديث الوثائق الرسمية",
+              isErrorFeedback = true,
             )
           }
         }
@@ -1610,9 +2015,153 @@ class FellahViewModel(
     viewModelScope.launch { repo.markMessageAsRead(messageId) }
   }
 
+  fun submitUserRating(
+    reviewerName: String,
+    targetUserId: String,
+    targetName: String,
+    targetRole: String,
+    stars: Int,
+    comment: String,
+    contextItemId: String = "",
+  ) {
+    val repo = roleRepository ?: return
+    val safeStars = stars.coerceIn(1, 5)
+    val reviewerRoleCode = _editorState.value.activeRole.code
+    viewModelScope.launch {
+      repo
+        .submitOrUpdateUserRating(
+          reviewerName = reviewerName,
+          reviewerRole = reviewerRoleCode,
+          targetUserId = targetUserId,
+          targetName = targetName,
+          targetRole = targetRole,
+          stars = safeStars,
+          comment = comment,
+          contextItemId = contextItemId,
+        )
+        .onSuccess {
+          val pts = safeStars * 20
+          _editorState.update { state ->
+            state.copy(
+              feedbackMessage =
+                when (state.language) {
+                  AppLanguage.AR ->
+                    "تم تسجيل تقييمك لـ ($targetName) بـ ★ $safeStars نجوم ($pts/100 نقطة) بنجاح"
+                  AppLanguage.FR ->
+                    "Évaluation enregistrée pour ($targetName) : ★ $safeStars ($pts/100 pts)"
+                  AppLanguage.EN ->
+                    "Rating saved for ($targetName): ★ $safeStars ($pts/100 pts)"
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update { state ->
+            state.copy(
+              feedbackMessage =
+                err.localizedMessage
+                  ?: when (state.language) {
+                    AppLanguage.AR -> "تعذر حفظ التقييم"
+                    AppLanguage.FR -> "Échec de l'enregistrement de la note"
+                    AppLanguage.EN -> "Failed to save rating"
+                  },
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun toggleFavoriteItem(
+    favoriteType: FavoriteTargetType,
+    targetId: String,
+    targetOwnerId: String,
+    targetTitle: String,
+    targetSubtitle: String,
+    targetRole: String,
+  ) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo
+        .toggleFavorite(
+          favoriteType = favoriteType,
+          targetId = targetId,
+          targetOwnerId = targetOwnerId,
+          targetTitle = targetTitle,
+          targetSubtitle = targetSubtitle,
+          targetRole = targetRole,
+        )
+        .onSuccess { added ->
+          _editorState.update { state ->
+            state.copy(
+              feedbackMessage =
+                if (added) {
+                  when (state.language) {
+                    AppLanguage.AR -> "تمت إضافة ($targetTitle) إلى قائمة المفضلة ❤️"
+                    AppLanguage.FR -> "($targetTitle) ajouté aux favoris ❤️"
+                    AppLanguage.EN -> "Added ($targetTitle) to favorites ❤️"
+                  }
+                } else {
+                  when (state.language) {
+                    AppLanguage.AR -> "تمت إزالة ($targetTitle) من المفضلة"
+                    AppLanguage.FR -> "($targetTitle) retiré des favoris"
+                    AppLanguage.EN -> "Removed ($targetTitle) from favorites"
+                  }
+                },
+              isErrorFeedback = false,
+            )
+          }
+        }
+        .onFailure { err ->
+          _editorState.update {
+            it.copy(
+              feedbackMessage = err.localizedMessage ?: "تعذر تحديث المفضلة",
+              isErrorFeedback = true,
+            )
+          }
+        }
+    }
+  }
+
+  fun removeFavorite(favoriteId: String) {
+    val repo = roleRepository ?: return
+    viewModelScope.launch {
+      repo.removeFavoriteById(favoriteId).onSuccess {
+        _editorState.update { state ->
+          state.copy(
+            feedbackMessage =
+              when (state.language) {
+                AppLanguage.AR -> "تمت إزالة العنصر من المفضلة"
+                AppLanguage.FR -> "Élément retiré des favoris"
+                AppLanguage.EN -> "Removed from favorites"
+              },
+            isErrorFeedback = false,
+          )
+        }
+      }
+    }
+  }
+
   companion object {
     private const val TAG = "FellahVM"
     private const val STOP_TIMEOUT_MILLIS = 5000L
+    private const val CUSTOM_CROPS_KEY = "saved_custom_crops_v1"
+
+    private fun loadPersistedCustomCrops(prefs: SharedPreferences?): List<String> {
+      val raw = prefs?.getString(CUSTOM_CROPS_KEY, null).orEmpty()
+      if (raw.isBlank()) return emptyList()
+      return raw
+        .split("\n")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .take(24)
+    }
+
+    private fun persistCustomCrops(prefs: SharedPreferences?, crops: List<String>) {
+      prefs?.edit()?.putString(CUSTOM_CROPS_KEY, crops.joinToString("\n"))?.apply()
+    }
 
     fun provideFactory(currentUserId: String): ViewModelProvider.Factory = viewModelFactory {
       initializer {
@@ -1633,12 +2182,20 @@ class FellahViewModel(
         }
         val offlineDb = FellahOfflineDatabase.getInstance(app)
         val offlineCacheRepo = OfflineMapCacheRepository(offlineDb.offlineMapRegionDao())
+        val localPlotRepo = LocalPlotRepository(offlineDb.savedPlotDao())
+        val customCropPrefs =
+          app.getSharedPreferences(
+            "fellah_custom_crops_${currentUserId.take(40)}",
+            Context.MODE_PRIVATE,
+          )
         FellahViewModel(
           repository = FellahRepository(db),
           currentUserId = currentUserId,
           offlineMapCacheRepository = offlineCacheRepo,
           connectivityFlow = NetworkConnectivityObserver.observeConnectivity(app),
           roleRepository = RoleAccountRepository(db),
+          localPlotRepository = localPlotRepo,
+          customCropPrefs = customCropPrefs,
         )
       }
     }

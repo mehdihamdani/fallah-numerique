@@ -28,7 +28,7 @@ data class AgriculturalParcel(
   val salinityEc: Double = 1.8,
   val drainageStatus: String = "عميق > 120 سم / تصريف ممتاز",
   val labDocumentName: String = "",
-  val mainCrop: String = "deglet_nour",
+  val mainCrop: String = "",
   val irrigationSystem: String = "السقي بالتقطير الحديث (Goutte-à-goutte)",
   val estimatedYieldTonsPerHa: Double = 38.5,
   val plantingYear: String = "2018 (أشجار منتجة)",
@@ -190,7 +190,31 @@ enum class CropVarietyType(
 
   companion object {
     fun fromCode(code: String): CropVarietyType =
-      entries.firstOrNull { it.code == code } ?: DEGLET_NOUR
+      fromCodeOrNull(code) ?: DEGLET_NOUR
+
+    fun fromCodeOrNull(code: String): CropVarietyType? =
+      entries.firstOrNull { it.code.equals(code.trim(), ignoreCase = true) }
+
+    fun isCustomCrop(code: String): Boolean =
+      code.isNotBlank() && fromCodeOrNull(code) == null
+
+    fun resolveDisplayTitleAr(rawCrop: String, emptyFallback: String = "غير محدد"): String {
+      val cleaned = rawCrop.trim()
+      if (cleaned.isEmpty()) return emptyFallback
+      return fromCodeOrNull(cleaned)?.titleAr ?: cleaned
+    }
+
+    fun resolveDisplaySubtitleFr(rawCrop: String): String {
+      val cleaned = rawCrop.trim()
+      if (cleaned.isEmpty()) return "Non spécifié"
+      return fromCodeOrNull(cleaned)?.subtitleFr ?: "Produit personnalisé"
+    }
+
+    fun resolveDefaultPriceKgDzd(rawCrop: String): Double =
+      fromCodeOrNull(rawCrop)?.defaultPriceKgDzd ?: 120.0
+
+    fun resolveDefaultYieldTonsHa(rawCrop: String): Double =
+      fromCodeOrNull(rawCrop)?.defaultYieldTonsHa ?: 20.0
   }
 }
 

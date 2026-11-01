@@ -286,7 +286,11 @@ class FellahAiViewModel(
                   if (!platformSnapshot.isAuthenticated || conversationRepository == null) {
                     _ephemeralMessages.update { it + userRec + assistantRec }
                   } else {
-                    if (_activeConversationIdFlow.value != resp.conversationId) {
+                    if (
+                      !resp.conversationId.startsWith("local_conv_") &&
+                        resp.conversationId != "visitor_ephemeral" &&
+                        _activeConversationIdFlow.value != resp.conversationId
+                    ) {
                       _activeConversationIdFlow.value = resp.conversationId
                     }
                     // Optimistic fallback until snapshot listener emits

@@ -53,8 +53,10 @@ import com.example.data.model.PlatformMessage
 import com.example.data.model.RoleSpecificProfile
 import com.example.data.model.ServiceBooking
 import com.example.data.model.TransportRequest
+import com.example.data.model.UserReputationSummary
 import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
+import com.example.ui.components.MyReputationOverviewCard
 import com.example.ui.viewmodel.FellahMatinViewModel
 import com.example.util.RoleStrings
 import java.util.Locale
@@ -101,6 +103,8 @@ fun RoleDashboardScreen(
   onOpenPublishHarvestDialog: () -> Unit,
   modifier: Modifier = Modifier,
   matinViewModel: FellahMatinViewModel? = null,
+  myReputation: UserReputationSummary = UserReputationSummary(targetUserId = currentUserId),
+  favoritesCount: Int = 0,
 ) {
   val unreadMessages = messages.count { it.recipientId == currentUserId && !it.isRead }
   val myActiveCatalog =
@@ -222,6 +226,14 @@ fun RoleDashboardScreen(
         }
       }
     }
+
+    // 1a. Operator Star Reputation, Trust Points & Saved Favorites Card
+    MyReputationOverviewCard(
+      myReputation = myReputation,
+      favoritesCount = favoritesCount,
+      language = language,
+      onOpenFavoritesInMarket = { onNavigateToSection(WorkspaceSection.PUBLIC_MARKET) },
+    )
 
     // 1b. Fellah Matin (أخبار الصباح) — Visible Daily Agricultural News Feed near top of Dashboard
     if (matinViewModel != null) {

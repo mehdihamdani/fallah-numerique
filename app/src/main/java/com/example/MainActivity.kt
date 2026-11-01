@@ -18,36 +18,53 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.model.AppLanguage
 import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
 import com.example.ui.auth.authStateFlow
+import com.example.ui.auth.createCredentialManagerSafely
 import com.example.ui.auth.signOutUser
 import com.example.ui.screens.FellahWorkspaceScreen
 import com.example.ui.screens.LoginScreen
 import com.example.ui.screens.RoleOnboardingScreen
 import com.example.ui.screens.VisitorExploreScreen
 import com.example.ui.theme.MyApplicationTheme
+import androidx.lifecycle.lifecycleScope
 import com.example.ui.viewmodel.FellahViewModel
 import com.example.ui.viewmodel.UiState
 import com.example.util.configureAppCheck
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+import android.content.Intent
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     configureAppCheck(this, intent)
+    val appCtx = applicationContext
+    lifecycleScope.launch(Dispatchers.IO) {
+      runCatching { File(appCtx.filesDir, "diagnostics").deleteRecursively() }
+      runCatching { appCtx.deleteSharedPreferences("fellah_perf_diagnostics_prefs") }
+    }
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
         AppNavigation()
       }
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    configureAppCheck(this, intent)
   }
 }
 
@@ -57,12 +74,13 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
     auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
-  val credentialManager = remember(context) { CredentialManager.create(context) }
+  val credentialManager = remember(context) { createCredentialManagerSafely(context) }
 
   var preferredLanguage by rememberSaveable { mutableStateOf(AppLanguage.AR) }
   var isVisitorMode by rememberSaveable { mutableStateOf(false) }
   var pendingDestinationSection by rememberSaveable { mutableStateOf<WorkspaceSection?>(null) }
   var pendingSuggestedRole by rememberSaveable { mutableStateOf<UserRole?>(null) }
+  var verifiedPhoneFromLogin by rememberSaveable { mutableStateOf("") }
 
   val user = currentUser
   if (user == null) {
@@ -81,6 +99,7 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
       LoginScreen(
         initialLanguage = preferredLanguage,
         onLanguageChanged = { lang -> preferredLanguage = lang },
+        onPhoneVerified = { verifiedPhone -> verifiedPhoneFromLogin = verifiedPhone },
         onEnterVisitorMode = { isVisitorMode = true },
       )
     }
@@ -107,6 +126,15 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
       is UiState.Success -> {
         val account = accountUi.data
         if (account == null || !account.onboardingCompleted) {
+          val resolvedPhone =
+            user.phoneNumber?.takeIf { it.isNotBlank() }
+              ?: account?.phoneNumber?.takeIf { it.isNotBlank() }
+              ?: verifiedPhoneFromLogin
+          val isPhoneVerified =
+            !user.phoneNumber.isNullOrBlank() ||
+              verifiedPhoneFromLogin.isNotBlank() ||
+              (account?.phoneVerified == true)
+
           RoleOnboardingScreen(
             existingAccount = account,
             existingRoleProfiles = roleProfiles,
@@ -114,6 +142,8 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
             language = editorState.language,
             userDisplayName = user.displayName ?: "Opérateur Fellah Numérique",
             userEmail = user.email.orEmpty(),
+            userPhoneNumber = resolvedPhone,
+            isPhoneVerifiedSession = isPhoneVerified,
             isSaving = editorState.isOnboardingSaving,
             errorMessage = editorState.onboardingErrorMessage,
             onLanguageSelected = { lang ->
@@ -127,6 +157,40 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
                 selectedRoles = roles,
                 defaultRole = defaultRole,
                 step = step,
+                phoneNumber = resolvedPhone,
+                phoneVerified = isPhoneVerified,
+              )
+            },
+            onSaveProgressDraftWithIdentity = { roles, defaultRole, step, identityData ->
+              fellahViewModel.saveOnboardingDraft(
+                displayName = user.displayName ?: "Opérateur Fellah Numérique",
+                email = user.email.orEmpty(),
+                selectedRoles = roles,
+                defaultRole = defaultRole,
+                step = step,
+                identityVerification = identityData,
+                phoneNumber = resolvedPhone,
+                phoneVerified = isPhoneVerified,
+              )
+            },
+            onSaveAccountDraft = {
+              typedDisplayName,
+              typedEmail,
+              typedPhone,
+              phoneVerifiedFlag,
+              roles,
+              defaultRole,
+              step,
+              identityData ->
+              fellahViewModel.saveOnboardingDraft(
+                displayName = typedDisplayName,
+                email = typedEmail,
+                selectedRoles = roles,
+                defaultRole = defaultRole,
+                step = step,
+                identityVerification = identityData,
+                phoneNumber = typedPhone,
+                phoneVerified = phoneVerifiedFlag,
               )
             },
             onCompleteOnboarding = { roles, defaultRole, profiles ->
@@ -140,9 +204,52 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
                 defaultRole = defaultRole,
                 profilesToSave = profiles,
                 intendedSectionAfterLogin = dest,
+                phoneNumber = resolvedPhone,
+                phoneVerified = isPhoneVerified,
+              )
+            },
+            onCompleteOnboardingWithIdentity = { roles, defaultRole, profiles, identityData ->
+              val dest = pendingDestinationSection
+              pendingDestinationSection = null
+              pendingSuggestedRole = null
+              fellahViewModel.completeMultiRoleOnboarding(
+                displayName = user.displayName ?: "Opérateur Fellah Numérique",
+                email = user.email.orEmpty(),
+                selectedRoles = roles,
+                defaultRole = defaultRole,
+                profilesToSave = profiles,
+                intendedSectionAfterLogin = dest,
+                identityVerification = identityData,
+                phoneNumber = resolvedPhone,
+                phoneVerified = isPhoneVerified,
+              )
+            },
+            onCompleteAccountOnboarding = {
+              typedDisplayName,
+              typedEmail,
+              typedPhone,
+              phoneVerifiedFlag,
+              roles,
+              defaultRole,
+              profiles,
+              identityData ->
+              val dest = pendingDestinationSection
+              pendingDestinationSection = null
+              pendingSuggestedRole = null
+              fellahViewModel.completeMultiRoleOnboarding(
+                displayName = typedDisplayName,
+                email = typedEmail,
+                selectedRoles = roles,
+                defaultRole = defaultRole,
+                profilesToSave = profiles,
+                intendedSectionAfterLogin = dest,
+                identityVerification = identityData,
+                phoneNumber = typedPhone,
+                phoneVerified = phoneVerifiedFlag,
               )
             },
             onSignOut = {
+              verifiedPhoneFromLogin = ""
               signOutUser(
                 credentialManager = credentialManager,
                 onSignOutComplete = {},
@@ -163,6 +270,7 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
             viewModel = fellahViewModel,
             currentUser = user,
             onSignOut = {
+              verifiedPhoneFromLogin = ""
               signOutUser(
                 credentialManager = credentialManager,
                 onSignOutComplete = {},
@@ -178,6 +286,7 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
           viewModel = fellahViewModel,
           currentUser = user,
           onSignOut = {
+            verifiedPhoneFromLogin = ""
             signOutUser(
               credentialManager = credentialManager,
               onSignOutComplete = {},

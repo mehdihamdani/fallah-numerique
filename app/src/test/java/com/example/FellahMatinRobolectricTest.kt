@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -200,10 +202,11 @@ class FellahMatinRobolectricTest {
       }
       composeTestRule.waitForIdle()
 
-      // Visitor sees أخبار الصباح on home AND can open full news tab without signing in
+      // Visitor sees أخبار الصباح on home (briefing + ticker + featured card) AND can open full news tab without signing in
       composeTestRule.onNodeWithTag("fellah_matin_dashboard_section").assertIsDisplayed()
       composeTestRule
-        .onNodeWithText("انطلاق موسم جني وتوضيب تمور دقلة نور ببسكرة", substring = true)
+        .onAllNodesWithText("انطلاق موسم جني وتوضيب تمور دقلة نور ببسكرة", substring = true)
+        .onFirst()
         .performScrollTo()
         .assertIsDisplayed()
 

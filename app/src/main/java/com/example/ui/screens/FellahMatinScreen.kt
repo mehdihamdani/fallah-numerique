@@ -1367,11 +1367,11 @@ private fun SeparatedVerifiedWeatherAndMarketSnapshots(
             )
           } else {
             activeVerifiedListings.take(4).forEach { listing ->
-              val crop = CropVarietyType.fromCode(listing.cropType)
+              val cropTitleAr = CropVarietyType.resolveDisplayTitleAr(listing.cropType)
               val tsMs = (listing.updatedAt ?: listing.createdAt)?.toDate()?.time ?: 0L
               Text(
                 text =
-                  "• ${crop.titleAr} (${listing.wilaya}) — ${listing.pricePerKgDzd} DZD/kg • ${listing.operatorName}" +
+                  "• $cropTitleAr (${listing.wilaya}) — ${listing.pricePerKgDzd} DZD/kg • ${listing.operatorName}" +
                     if (tsMs > 0L) " • [${formatReadableTimestamp(tsMs)}]" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,

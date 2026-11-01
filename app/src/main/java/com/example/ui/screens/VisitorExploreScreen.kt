@@ -29,8 +29,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Handyman
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
@@ -91,6 +93,8 @@ private data class PublicMarketPreviewItem(
   val referencePriceLabel: String,
   val targetSection: WorkspaceSection,
   val suggestedRole: UserRole,
+  val referenceStars: String = "4.9",
+  val referencePoints: Int = 98,
 )
 
 private val publicVisitorMarketDirectory =
@@ -269,36 +273,6 @@ fun VisitorExploreScreen(
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-              Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-              ) {
-                Row(modifier = Modifier.padding(2.dp)) {
-                  AppLanguage.entries.forEach { lang ->
-                    val selected = lang == language
-                    Box(
-                      modifier =
-                        Modifier.clip(RoundedCornerShape(6.dp))
-                          .background(
-                            if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
-                          )
-                          .clickable { onLanguageSelected(lang) }
-                          .padding(horizontal = 8.dp, vertical = 5.dp)
-                          .testTag("visitor_lang_${lang.code}"),
-                    ) {
-                      Text(
-                        text = lang.code,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color =
-                          if (selected) MaterialTheme.colorScheme.onPrimary
-                          else MaterialTheme.colorScheme.onSurfaceVariant,
-                      )
-                    }
-                  }
-                }
-              }
-
               Button(
                 onClick = { onRequireSignInForAction(WorkspaceSection.ROLE_DASHBOARD, null) },
                 shape = RoundedCornerShape(10.dp),
@@ -484,16 +458,71 @@ fun VisitorExploreScreen(
                         )
                       }
                     }
-                    Surface(
-                      shape = RoundedCornerShape(8.dp),
-                      color = MaterialTheme.colorScheme.primaryContainer,
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                      IconButton(
+                        onClick = {
+                          pendingGatePrompt = WorkspaceSection.PUBLIC_MARKET to item.suggestedRole
+                        },
+                        modifier =
+                          Modifier.size(48.dp)
+                            .testTag("visitor_favorite_action_${item.id}"),
+                      ) {
+                        Icon(
+                          imageVector = Icons.Filled.FavoriteBorder,
+                          contentDescription =
+                            RoleStrings.tr(
+                              language,
+                              ar = "إضافة إلى المفضلة",
+                              fr = "Ajouter aux favoris",
+                              en = "Add to favorites",
+                            ),
+                          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                      }
+                      Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                      ) {
+                        Text(
+                          text = item.referencePriceLabel,
+                          style = MaterialTheme.typography.labelMedium,
+                          fontWeight = FontWeight.Bold,
+                          color = MaterialTheme.colorScheme.onPrimaryContainer,
+                          modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                      }
+                    }
+                  }
+
+                  Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    modifier =
+                      Modifier.clickable {
+                        pendingGatePrompt = WorkspaceSection.PUBLIC_MARKET to item.suggestedRole
+                      }.testTag("visitor_rate_badge_${item.id}"),
+                  ) {
+                    Row(
+                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
+                      Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = Color(0xFFD98200),
+                        modifier = Modifier.size(16.dp),
+                      )
                       Text(
-                        text = item.referencePriceLabel,
+                        text =
+                          RoleStrings.tr(
+                            language,
+                            ar = "★ ${item.referenceStars} • ${item.referencePoints}/100 نقطة ثقة (متعاملو المنصة)",
+                            fr = "★ ${item.referenceStars} • ${item.referencePoints}/100 pts de confiance",
+                            en = "★ ${item.referenceStars} • ${item.referencePoints}/100 trust score",
+                          ),
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        fontWeight = FontWeight.SemiBold,
                       )
                     }
                   }

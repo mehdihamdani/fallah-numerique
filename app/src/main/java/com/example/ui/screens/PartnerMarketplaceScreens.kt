@@ -50,10 +50,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AppLanguage
+import com.example.data.model.FavoriteTargetType
 import com.example.data.model.MarketplaceOrder
 import com.example.data.model.PartnerCatalogItem
 import com.example.data.model.PlatformMessage
+import com.example.data.model.UserFavoriteRecord
+import com.example.data.model.UserRatingRecord
+import com.example.data.model.UserReputationSummary
 import com.example.data.model.UserRole
+import com.example.ui.components.FavoriteToggleIconButton
+import com.example.ui.components.OperatorReputationBadge
+import com.example.ui.components.RateOperatorActionButton
+import com.example.ui.components.RateOperatorDialog
 import com.example.ui.viewmodel.UiState
 import com.example.util.RoleStrings
 
@@ -390,6 +398,13 @@ fun PartnerCatalogScreen(
 /**
  * B2B Orders, Quotations & Storage/Transport Reservations Screen (`OrdersAndQuotesScreen`).
  */
+private data class OrderCounterpartyTarget(
+  val targetUserId: String,
+  val targetName: String,
+  val targetRole: UserRole,
+  val orderId: String,
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OrdersAndQuotesScreen(
@@ -404,6 +419,25 @@ fun OrdersAndQuotesScreen(
   onSubmitQuote: (MarketplaceOrder, Double, String) -> Unit,
   onUpdateOrderStatus: (String, String) -> Unit,
   onBackToDashboard: () -> Unit,
+  reputationByUser: Map<String, UserReputationSummary> = emptyMap(),
+  publishedRatings: List<UserRatingRecord> = emptyList(),
+  userFavorites: List<UserFavoriteRecord> = emptyList(),
+  onSubmitRating: (
+    targetUserId: String,
+    targetName: String,
+    targetRole: String,
+    stars: Int,
+    comment: String,
+    contextItemId: String,
+  ) -> Unit = { _, _, _, _, _, _ -> },
+  onToggleFavorite: (
+    favoriteType: FavoriteTargetType,
+    targetId: String,
+    targetOwnerId: String,
+    targetTitle: String,
+    targetSubtitle: String,
+    targetRole: String,
+  ) -> Unit = { _, _, _, _, _, _ -> },
 ) {
   BackHandler(onBack = onBackToDashboard)
 
@@ -421,8 +455,16 @@ fun OrdersAndQuotesScreen(
   var quoteModalOrder by remember { mutableStateOf<MarketplaceOrder?>(null) }
   var quotePriceInput by remember { mutableStateOf("") }
   var quoteNotesInput by remember { mutableStateOf("") }
+  var ratingModalTarget by remember { mutableStateOf<OrderCounterpartyTarget?>(null) }
 
   val myOrders = (myOrdersState as? UiState.Success)?.data ?: emptyList()
+  val favoritedOperators =
+    remember(userFavorites) {
+      userFavorites
+        .filter { it.favoriteType == FavoriteTargetType.OPERATOR.code }
+        .map { it.targetId }
+        .toSet()
+    }
 
   Column(
     modifier = Modifier.fillMaxWidth().testTag("orders_and_quotes_screen"),
@@ -497,6 +539,23 @@ fun OrdersAndQuotesScreen(
         }
         myOrders.forEach { order ->
           val isRequester = order.requesterId == currentUserId
+          val counterpartyUid = if (isRequester) order.providerId else order.requesterId
+          val counterpartyRole =
+            UserRole.fromCode(if (isRequester) order.targetRole else order.requesterRole)
+          val counterpartyName =
+            if (isRequester) {
+              "${counterpartyRole.localizedTitle(language)} (${order.itemTitle})"
+            } else {
+              order.requesterName.ifBlank { counterpartyRole.localizedTitle(language) }
+            }
+          val counterpartyRep =
+            reputationByUser[counterpartyUid]
+              ?: UserReputationSummary(targetUserId = counterpartyUid)
+          val hasMyRating =
+            publishedRatings.any {
+              it.reviewerId == currentUserId && it.targetUserId == counterpartyUid
+            }
+
           Card(
             shape = RoundedCornerShape(14.dp),
             colors =
@@ -535,20 +594,47 @@ fun OrdersAndQuotesScreen(
                     Text(text = order.notes, style = MaterialTheme.typography.bodySmall)
                   }
                 }
-                Surface(
-                  shape = RoundedCornerShape(8.dp),
-                  color = MaterialTheme.colorScheme.secondaryContainer,
-                ) {
-                  Text(
-                    text = RoleStrings.orderStatusLabel(order.status, language),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                  )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  if (counterpartyUid.isNotBlank() && counterpartyUid != currentUserId) {
+                    FavoriteToggleIconButton(
+                      isFavorited = favoritedOperators.contains(counterpartyUid),
+                      favoriteType = FavoriteTargetType.OPERATOR,
+                      targetId = counterpartyUid,
+                      language = language,
+                      onToggle = {
+                        onToggleFavorite(
+                          FavoriteTargetType.OPERATOR,
+                          counterpartyUid,
+                          counterpartyUid,
+                          counterpartyName,
+                          "${order.wilaya} • ${counterpartyRole.localizedTitle(language)}",
+                          counterpartyRole.code,
+                        )
+                      },
+                    )
+                  }
+                  Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                  ) {
+                    Text(
+                      text = RoleStrings.orderStatusLabel(order.status, language),
+                      style = MaterialTheme.typography.labelSmall,
+                      fontWeight = FontWeight.Bold,
+                      modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                  }
                 }
               }
 
-              FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              if (counterpartyUid.isNotBlank() && counterpartyUid != currentUserId) {
+                OperatorReputationBadge(summary = counterpartyRep, language = language)
+              }
+
+              FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
                 if (isRequester && order.status == "quoted") {
                   Button(
                     onClick = { onUpdateOrderStatus(order.id, "accepted") },
@@ -575,6 +661,22 @@ fun OrdersAndQuotesScreen(
                     Text(RoleStrings.tr(language, "إلغاء", "Annuler", "Cancel"))
                   }
                 }
+                if (counterpartyUid.isNotBlank() && counterpartyUid != currentUserId) {
+                  RateOperatorActionButton(
+                    targetIdForTag = "order_${order.id}",
+                    hasExistingRatingByMe = hasMyRating,
+                    language = language,
+                    onClick = {
+                      ratingModalTarget =
+                        OrderCounterpartyTarget(
+                          targetUserId = counterpartyUid,
+                          targetName = counterpartyName,
+                          targetRole = counterpartyRole,
+                          orderId = order.id,
+                        )
+                    },
+                  )
+                }
               }
             }
           }
@@ -595,6 +697,15 @@ fun OrdersAndQuotesScreen(
           )
         }
         openRoleOrders.forEach { order ->
+          val requesterRep =
+            reputationByUser[order.requesterId]
+              ?: UserReputationSummary(targetUserId = order.requesterId)
+          val requesterRoleEnum = UserRole.fromCode(order.requesterRole)
+          val hasMyRating =
+            publishedRatings.any {
+              it.reviewerId == currentUserId && it.targetUserId == order.requesterId
+            }
+
           Card(
             shape = RoundedCornerShape(14.dp),
             colors =
@@ -603,32 +714,82 @@ fun OrdersAndQuotesScreen(
               ),
             modifier = Modifier.fillMaxWidth(),
           ) {
-            Row(
+            Column(
               modifier = Modifier.fillMaxWidth().padding(14.dp),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
+              verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-              Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                Text(
-                  text = "${order.itemTitle} • ${order.quantity} ${order.unitLabel}",
-                  style = MaterialTheme.typography.titleMedium,
-                  fontWeight = FontWeight.Bold,
-                )
-                Text(
-                  text = "${order.requesterName} — ${order.wilaya}",
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-              }
-              Button(
-                onClick = {
-                  quoteModalOrder = order
-                  quotePriceInput = order.proposedPriceDzd.toInt().toString()
-                  quoteNotesInput = ""
-                },
-                modifier = Modifier.height(48.dp).testTag("submit_quote_btn_${order.id}"),
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
               ) {
-                Text(RoleStrings.tr(language, "تقديم عرض سعر", "Proposer devis", "Submit Quote"))
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                  Text(
+                    text = "${order.itemTitle} • ${order.quantity} ${order.unitLabel}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                  )
+                  Text(
+                    text = "${order.requesterName} — ${order.wilaya}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+                if (order.requesterId.isNotBlank() && order.requesterId != currentUserId) {
+                  FavoriteToggleIconButton(
+                    isFavorited = favoritedOperators.contains(order.requesterId),
+                    favoriteType = FavoriteTargetType.OPERATOR,
+                    targetId = order.requesterId,
+                    language = language,
+                    onToggle = {
+                      onToggleFavorite(
+                        FavoriteTargetType.OPERATOR,
+                        order.requesterId,
+                        order.requesterId,
+                        order.requesterName.ifBlank { order.itemTitle },
+                        "${order.wilaya} • ${requesterRoleEnum.localizedTitle(language)}",
+                        requesterRoleEnum.code,
+                      )
+                    },
+                  )
+                }
+              }
+
+              if (order.requesterId.isNotBlank()) {
+                OperatorReputationBadge(summary = requesterRep, language = language)
+              }
+
+              FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                Button(
+                  onClick = {
+                    quoteModalOrder = order
+                    quotePriceInput = order.proposedPriceDzd.toInt().toString()
+                    quoteNotesInput = ""
+                  },
+                  modifier = Modifier.height(48.dp).testTag("submit_quote_btn_${order.id}"),
+                ) {
+                  Text(RoleStrings.tr(language, "تقديم عرض سعر", "Proposer devis", "Submit Quote"))
+                }
+
+                if (order.requesterId.isNotBlank() && order.requesterId != currentUserId) {
+                  RateOperatorActionButton(
+                    targetIdForTag = "open_${order.id}",
+                    hasExistingRatingByMe = hasMyRating,
+                    language = language,
+                    onClick = {
+                      ratingModalTarget =
+                        OrderCounterpartyTarget(
+                          targetUserId = order.requesterId,
+                          targetName = order.requesterName.ifBlank { order.itemTitle },
+                          targetRole = requesterRoleEnum,
+                          orderId = order.id,
+                        )
+                    },
+                  )
+                }
               }
             }
           }
@@ -788,6 +949,37 @@ fun OrdersAndQuotesScreen(
         TextButton(onClick = { quoteModalOrder = null }) {
           Text(RoleStrings.tr(language, "إلغاء", "Annuler", "Cancel"))
         }
+      },
+    )
+  }
+
+  val rateTarget = ratingModalTarget
+  if (rateTarget != null) {
+    val summary =
+      reputationByUser[rateTarget.targetUserId]
+        ?: UserReputationSummary(targetUserId = rateTarget.targetUserId)
+    val myExisting =
+      publishedRatings.firstOrNull {
+        it.reviewerId == currentUserId && it.targetUserId == rateTarget.targetUserId
+      }
+    RateOperatorDialog(
+      targetUserId = rateTarget.targetUserId,
+      targetName = rateTarget.targetName,
+      targetRole = rateTarget.targetRole,
+      language = language,
+      reputationSummary = summary,
+      existingMyRating = myExisting,
+      onDismiss = { ratingModalTarget = null },
+      onSubmitRating = { stars, comment ->
+        onSubmitRating(
+          rateTarget.targetUserId,
+          rateTarget.targetName,
+          rateTarget.targetRole.code,
+          stars,
+          comment,
+          rateTarget.orderId,
+        )
+        ratingModalTarget = null
       },
     )
   }

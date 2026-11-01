@@ -120,7 +120,8 @@ object ParcelPdfExporter {
     val mapBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1E3524") }
     canvas.drawRoundRect(mapBox, 10f, 10f, mapBg)
 
-    val decoded = parcel.polygonPoints.map { NormalizedPoint.decode(it) }
+    val center = GeoCoordinateMapper.parseCenterCoordinates(parcel.coordinatesLabel)
+    val decoded = GeoCoordinateMapper.decodePolygonToNormalized(parcel.polygonPoints, center)
     if (decoded.size >= 3) {
       val polyPath = Path()
       decoded.forEachIndexed { index, pt ->
@@ -180,11 +181,12 @@ object ParcelPdfExporter {
       sectionTitlePaint,
     )
 
-    val crop = CropVarietyType.fromCode(parcel.mainCrop)
+    val cropTitleAr = CropVarietyType.resolveDisplayTitleAr(parcel.mainCrop, "غير محدد")
+    val cropSubtitleFr = CropVarietyType.resolveDisplaySubtitleFr(parcel.mainCrop)
     val totalHarvest = parcel.areaHectares * parcel.estimatedYieldTonsPerHa
     val cropRows =
       listOf(
-        "Culture Principale / المحصول:" to "${crop.titleAr} — ${crop.subtitleFr}",
+        "Culture Principale / المحصول:" to "$cropTitleAr — $cropSubtitleFr",
         "Système d'Irrigation / الري:" to parcel.irrigationSystem,
         "Rendement Estimé / المردود:" to "${"%.1f".format(parcel.estimatedYieldTonsPerHa)} T/Ha",
         "Production Totale / الإنتاج الكلي:" to "${"%.1f".format(totalHarvest)} Tonnes",

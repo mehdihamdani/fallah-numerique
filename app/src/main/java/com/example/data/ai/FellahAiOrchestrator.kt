@@ -9,8 +9,10 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Sliding-window per-minute rate limiter + in-memory visitor daily quota tracker.
@@ -96,6 +98,7 @@ class FellahAiOrchestrator(
   private val dayKeyProvider: () -> String = { currentUtcDayKey() },
   private val maxDailyAuthenticatedRequests: Int =
     AiConversationRepository.DEFAULT_DAILY_REQUEST_LIMIT,
+  private val firestoreOpTimeoutMillis: Long = DEFAULT_FIRESTORE_OP_TIMEOUT_MS,
 ) {
 
   val isProviderVerified: Boolean
@@ -312,16 +315,12 @@ class FellahAiOrchestrator(
       val promptTokensEst = ((cleanMessage.length + toolContext.sandboxedContextBlock.length) / 4).coerceAtLeast(10)
 
       if (platformSnapshot.isAuthenticated && conversationRepository != null) {
-        val quotaRecord =
-          conversationRepository
-            .checkAndConsumeDailyQuota(
-              dayKey = todayKey,
-              maxDailyRequests = maxDailyAuthenticatedRequests,
-              estimatedTokensDelta = promptTokensEst + 200,
-            )
-            .getOrThrow()
         remainingQuota =
-          (maxDailyAuthenticatedRequests - quotaRecord.dailyRequestCount).coerceAtLeast(0)
+          resolveDailyQuotaBounded(
+            dayKey = todayKey,
+            estimatedTokensDelta = promptTokensEst + 200,
+            fallbackQuota = remainingQuota,
+          )
       }
 
       val sysPrompt =
@@ -351,7 +350,7 @@ class FellahAiOrchestrator(
             systemInstructionText = sysPrompt,
             history = history,
             userPromptWithSandboxedData = combinedUserPayload,
-            maxOutputTokens = 1024,
+            maxOutputTokens = AiProviderPromptContext.DEFAULT_MAX_OUTPUT_TOKENS,
           )
         )
 
@@ -472,16 +471,12 @@ class FellahAiOrchestrator(
       ((cleanMessage.length + toolContext.sandboxedContextBlock.length) / 4).coerceAtLeast(10)
 
     if (platformSnapshot.isAuthenticated && conversationRepository != null) {
-      val quotaRecord =
-        conversationRepository
-          .checkAndConsumeDailyQuota(
-            dayKey = todayKey,
-            maxDailyRequests = maxDailyAuthenticatedRequests,
-            estimatedTokensDelta = promptTokensEst + 200,
-          )
-          .getOrThrow()
       remainingQuota =
-        (maxDailyAuthenticatedRequests - quotaRecord.dailyRequestCount).coerceAtLeast(0)
+        resolveDailyQuotaBounded(
+          dayKey = todayKey,
+          estimatedTokensDelta = promptTokensEst + 200,
+          fallbackQuota = remainingQuota,
+        )
     }
 
     val sysPrompt =
@@ -512,7 +507,7 @@ class FellahAiOrchestrator(
           systemInstructionText = sysPrompt,
           history = history,
           userPromptWithSandboxedData = combinedUserPayload,
-          maxOutputTokens = 1024,
+          maxOutputTokens = AiProviderPromptContext.DEFAULT_MAX_OUTPUT_TOKENS,
         )
       )
       .collect { partial ->
@@ -557,6 +552,43 @@ class FellahAiOrchestrator(
     )
   }
 
+  private suspend fun resolveDailyQuotaBounded(
+    dayKey: String,
+    estimatedTokensDelta: Int,
+    fallbackQuota: Int,
+  ): Int {
+    val repo = conversationRepository ?: return fallbackQuota
+    val quotaResult =
+      try {
+        withTimeoutOrNull(firestoreOpTimeoutMillis) {
+          repo.checkAndConsumeDailyQuota(
+            dayKey = dayKey,
+            maxDailyRequests = maxDailyAuthenticatedRequests,
+            estimatedTokensDelta = estimatedTokensDelta,
+          )
+        }
+      } catch (e: TimeoutCancellationException) {
+        null
+      } catch (e: CancellationException) {
+        throw e
+      } catch (_: Exception) {
+        null
+      } ?: return fallbackQuota
+
+    quotaResult.exceptionOrNull()?.let { err ->
+      if (err is FellahAiException && err.code == AiErrorCode.DAILY_QUOTA_EXCEEDED) {
+        throw err
+      }
+      if (err is CancellationException && err !is TimeoutCancellationException) {
+        throw err
+      }
+      return fallbackQuota
+    }
+
+    val record = quotaResult.getOrNull() ?: return fallbackQuota
+    return (maxDailyAuthenticatedRequests - record.dailyRequestCount).coerceAtLeast(0)
+  }
+
   private suspend fun persistTurnIfAuthenticated(
     existingConversationId: String?,
     cleanUserMessage: String,
@@ -574,51 +606,71 @@ class FellahAiOrchestrator(
       return existingConversationId ?: "visitor_ephemeral"
     }
 
-    val convId =
-      if (existingConversationId.isNullOrBlank() || existingConversationId == "visitor_ephemeral") {
+    val localFallbackId =
+      existingConversationId?.takeIf { it.isNotBlank() && it != "visitor_ephemeral" }
+        ?: "local_conv_${System.currentTimeMillis()}"
+
+    return try {
+      withTimeoutOrNull(firestoreOpTimeoutMillis) {
+        val convId =
+          if (
+            existingConversationId.isNullOrBlank() ||
+              existingConversationId == "visitor_ephemeral" ||
+              existingConversationId.startsWith("local_conv_")
+          ) {
+            conversationRepository
+              .createConversation(
+                title = cleanUserMessage.take(80),
+                activeRole = activeRole,
+                language = language,
+              )
+              .getOrThrow()
+              .id
+          } else {
+            // Verify ownership via getConversationById before appending
+            conversationRepository.getConversationById(existingConversationId).getOrThrow().id
+          }
+
         conversationRepository
-          .createConversation(
-            title = cleanUserMessage.take(80),
+          .appendMessage(
+            conversationId = convId,
+            sender = "user",
+            content = cleanUserMessage,
             activeRole = activeRole,
             language = language,
+            updatedMessageCount = priorCount + 1,
           )
           .getOrThrow()
-          .id
-      } else {
-        // Verify ownership via getConversationById before appending
-        conversationRepository.getConversationById(existingConversationId).getOrThrow().id
-      }
 
-    conversationRepository
-      .appendMessage(
-        conversationId = convId,
-        sender = "user",
-        content = cleanUserMessage,
-        activeRole = activeRole,
-        language = language,
-        updatedMessageCount = priorCount + 1,
-      )
-      .getOrThrow()
+        conversationRepository
+          .appendMessage(
+            conversationId = convId,
+            sender = "assistant",
+            content = assistantReply,
+            activeRole = activeRole,
+            language = language,
+            verifiedDataSummary = verifiedSummary,
+            hasVerifiedPlatformData = hasVerifiedData,
+            promptTokensEstimate = promptTokensEst,
+            completionTokensEstimate = completionTokensEst,
+            updatedMessageCount = priorCount + 2,
+          )
+          .getOrThrow()
 
-    conversationRepository
-      .appendMessage(
-        conversationId = convId,
-        sender = "assistant",
-        content = assistantReply,
-        activeRole = activeRole,
-        language = language,
-        verifiedDataSummary = verifiedSummary,
-        hasVerifiedPlatformData = hasVerifiedData,
-        promptTokensEstimate = promptTokensEst,
-        completionTokensEstimate = completionTokensEst,
-        updatedMessageCount = priorCount + 2,
-      )
-      .getOrThrow()
-
-    return convId
+        convId
+      } ?: localFallbackId
+    } catch (e: TimeoutCancellationException) {
+      localFallbackId
+    } catch (e: CancellationException) {
+      throw e
+    } catch (_: Exception) {
+      localFallbackId
+    }
   }
 
   companion object {
+    const val DEFAULT_FIRESTORE_OP_TIMEOUT_MS = 5_000L
+
     internal fun currentUtcDayKey(): String {
       val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
       sdf.timeZone = TimeZone.getTimeZone("UTC")

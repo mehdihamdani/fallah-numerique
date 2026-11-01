@@ -997,4 +997,293 @@ test("17. Fellah Matin user_news_preferences enforce owner isolation and valid c
   );
 });
 
+test("18. Registration National ID Card & optional Farmer Card PII fields enforce bounds and owner-only isolation", async () => {
+  const now = new Date(Date.now() - 1500);
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  // Owner creates account with scanned National ID Card and optional Farmer Card
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      ...buildUserAccount(ALICE_UID, ["farmer"], "farmer", true, 5, now),
+      nationalIdScanned: true,
+      nationalIdNumber: "109880712004560001",
+      nationalIdHolderName: "أحمد بن صالح",
+      farmerCardScanned: true,
+      farmerCardNumber: "CAW-07-2025-8841",
+      farmerCardWilaya: "07 - بسكرة (Biskra)",
+    })
+  );
+
+  // Owner can read own PII and update optional Farmer Card if added later
+  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).get());
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      farmerCardNumber: "CAW-07-2026-9910",
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+
+  // Cross-user read or tamper on Alice's scanned ID / Farmer Card PII is strictly rejected
+  await assertFails(bobDb.collection("users").doc(ALICE_UID).get());
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).update({
+      nationalIdNumber: "000000000",
+      updatedAt: new Date(Date.now() - 100),
+    })
+  );
+
+  // Oversized nationalIdNumber (> 40 chars) or wrong type rejected
+  await assertFails(
+    bobDb.collection("users").doc(BOB_UID).set({
+      ...buildUserAccount(BOB_UID, ["trader"], "trader", true, 5, now),
+      nationalIdScanned: true,
+      nationalIdNumber: "X".repeat(45),
+    })
+  );
+});
+
+test("19. User star ratings & points (/user_ratings) enforce anti-self-rating, 1..5 star bounds, pointsAwarded == stars * 20, and query enforcement", async () => {
+  const now = new Date(Date.now() - 1500);
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  const validRatingId = `${ALICE_UID}_${BOB_UID}`;
+  const validPayload = {
+    reviewerId: ALICE_UID,
+    reviewerName: "أحمد الفلاح",
+    reviewerRole: "farmer",
+    targetUserId: BOB_UID,
+    targetName: "شركة البركة للتجارة والتبريد",
+    targetRole: "trader",
+    stars: 5,
+    pointsAwarded: 100,
+    comment: "التزام ممتاز بالمواعيد وجودة التغليف والوزن الدقيق.",
+    contextItemId: "order_biskra_01",
+    status: "published",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Unauthenticated read/write rejected
+  await assertFails(unauthDb.collection("user_ratings").doc(validRatingId).get());
+  await assertFails(unauthDb.collection("user_ratings").doc(validRatingId).set(validPayload));
+
+  // Self-rating is strictly rejected
+  await assertFails(
+    aliceDb.collection("user_ratings").doc(`${ALICE_UID}_${ALICE_UID}`).set({
+      ...validPayload,
+      targetUserId: ALICE_UID,
+    })
+  );
+
+  // Out-of-bounds stars (6) or spoofed pointsAwarded (stars=2, pointsAwarded=100) rejected
+  await assertFails(
+    aliceDb.collection("user_ratings").doc(validRatingId).set({
+      ...validPayload,
+      stars: 6,
+      pointsAwarded: 120,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("user_ratings").doc(validRatingId).set({
+      ...validPayload,
+      stars: 2,
+      pointsAwarded: 100,
+    })
+  );
+
+  // Wrong document ID (not reviewerId_targetUserId) rejected
+  await assertFails(
+    aliceDb.collection("user_ratings").doc("random_rating_id").set(validPayload)
+  );
+
+  // Valid 5-star (100 points) rating creation succeeds
+  await assertSucceeds(
+    aliceDb.collection("user_ratings").doc(validRatingId).set(validPayload)
+  );
+
+  // Query enforcement: unfiltered list fails, filtered by status == 'published' succeeds for any signed-in user
+  await assertFails(bobDb.collection("user_ratings").get());
+  await assertSucceeds(
+    bobDb.collection("user_ratings").where("status", "==", "published").get()
+  );
+
+  // Reviewer can update own rating (e.g., to 4 stars / 80 points), while target Bob cannot tamper or delete it
+  await assertSucceeds(
+    aliceDb.collection("user_ratings").doc(validRatingId).update({
+      stars: 4,
+      pointsAwarded: 80,
+      comment: "خدمة جيدة جداً مع تأخر طفيف في الشحن.",
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+  await assertFails(
+    bobDb.collection("user_ratings").doc(validRatingId).update({
+      stars: 5,
+      pointsAwarded: 100,
+      updatedAt: new Date(Date.now() - 100),
+    })
+  );
+  await assertFails(bobDb.collection("user_ratings").doc(validRatingId).delete());
+  await assertSucceeds(aliceDb.collection("user_ratings").doc(validRatingId).delete());
+});
+
+test("20. User favorites (/user_favorites) enforce strict owner-only isolation and composite ID integrity", async () => {
+  const now = new Date(Date.now() - 1500);
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  const favId = `${ALICE_UID}_operator_${BOB_UID}`;
+  const validFavorite = {
+    userId: ALICE_UID,
+    favoriteType: "operator",
+    targetId: BOB_UID,
+    targetOwnerId: BOB_UID,
+    targetTitle: "مؤسسة الواحة للنقل المبرد",
+    targetSubtitle: "07 - بسكرة (Biskra) • ناقل فلاحي",
+    targetRole: "transporter",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Unauthenticated & mismatched composite ID rejected
+  await assertFails(unauthDb.collection("user_favorites").doc(favId).set(validFavorite));
+  await assertFails(aliceDb.collection("user_favorites").doc("wrong_fav_id").set(validFavorite));
+
+  // Invalid favoriteType rejected
+  await assertFails(
+    aliceDb.collection("user_favorites").doc(`${ALICE_UID}_unknown_${BOB_UID}`).set({
+      ...validFavorite,
+      favoriteType: "unknown",
+    })
+  );
+
+  // Owner creates favorite, queries own favorites, and updates subtitle
+  await assertSucceeds(aliceDb.collection("user_favorites").doc(favId).set(validFavorite));
+  await assertSucceeds(
+    aliceDb.collection("user_favorites").where("userId", "==", ALICE_UID).get()
+  );
+  await assertSucceeds(
+    aliceDb.collection("user_favorites").doc(favId).update({
+      targetSubtitle: "07 - بسكرة • ★ 4.9 (98 نقطة)",
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+
+  // Unfiltered list and cross-user read/write/delete by Bob strictly rejected
+  await assertFails(aliceDb.collection("user_favorites").get());
+  await assertFails(bobDb.collection("user_favorites").doc(favId).get());
+  await assertFails(
+    bobDb.collection("user_favorites").where("userId", "==", ALICE_UID).get()
+  );
+  await assertFails(bobDb.collection("user_favorites").doc(favId).delete());
+
+  // Owner can remove favorite
+  await assertSucceeds(aliceDb.collection("user_favorites").doc(favId).delete());
+});
+
+test("phone registration profile stores verified phoneNumber and allows post-OTP email completion", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const now = new Date(Date.now() - 1000);
+
+  const phoneDraft = {
+    ...buildUserAccount(ALICE_UID, [], "", false, 1, now),
+    email: "",
+    phoneNumber: "+213551234567",
+    phoneVerified: true,
+  };
+  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).set(phoneDraft));
+
+  // Oversized phoneNumber (> 32 chars) rejected
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      phoneNumber: "+" + "1".repeat(40),
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+
+  // Post-OTP completion with email, displayName, and role succeeds
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      displayName: "مهدي فلاح البليدة",
+      email: "mehdi.farmer@fellah.dz",
+      assignedRoles: ["farmer"],
+      defaultRole: "farmer",
+      onboardingCompleted: true,
+      onboardingStep: 4,
+      updatedAt: new Date(Date.now() - 200),
+    })
+  );
+});
+
+test("parcels allow empty mainCrop and custom farmer product names while rejecting oversized strings", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const now = new Date(Date.now() - 2000);
+
+  // 1. Empty mainCrop ("") succeeds
+  const blankCropParcel = {
+    ...buildValidParcel(ALICE_UID, now),
+    mainCrop: "",
+  };
+  await assertSucceeds(aliceDb.collection("parcels").doc("parcel_blank_crop").set(blankCropParcel));
+
+  // 2. Updating to a custom farmer product succeeds
+  await assertSucceeds(
+    aliceDb.collection("parcels").doc("parcel_blank_crop").update({
+      mainCrop: "بطيخ أحمر - المنيعة (منتوج خاص)",
+      updatedAt: new Date(Date.now() - 1000),
+    })
+  );
+
+  // 3. Value poisoning (> 80 chars or non-string) rejected
+  await assertFails(
+    aliceDb.collection("parcels").doc("parcel_blank_crop").update({
+      mainCrop: "م".repeat(85),
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("parcels").doc("parcel_blank_crop").update({
+      mainCrop: 12345,
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+
+  // 4. Market listing accepts custom cropType (1..80 chars) and rejects blank or >80 chars
+  await assertSucceeds(
+    aliceDb.collection("market_listings").doc("listing_custom_crop").set({
+      userId: ALICE_UID,
+      parcelId: "parcel_blank_crop",
+      operatorName: "مستثمرة المنيعة الحديثة",
+      parcelReference: "Ilot N 108 / P-24",
+      cropType: "بطيخ أحمر - المنيعة (منتوج خاص)",
+      wilaya: "58 - المنيعة (El Meniaa)",
+      availableTons: 24.0,
+      pricePerKgDzd: 65,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  await assertFails(
+    aliceDb.collection("market_listings").doc("listing_blank_crop").set({
+      userId: ALICE_UID,
+      parcelId: "parcel_blank_crop",
+      operatorName: "مستثمرة المنيعة الحديثة",
+      parcelReference: "Ilot N 108 / P-24",
+      cropType: "",
+      wilaya: "58 - المنيعة (El Meniaa)",
+      availableTons: 24.0,
+      pricePerKgDzd: 65,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+});
+
 

@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -18,10 +20,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Info
@@ -39,6 +45,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +73,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -562,7 +571,7 @@ private fun SoilTextureRadioCard(
   }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CropsAndCampaignCard(
   parcel: AgriculturalParcel,
@@ -572,9 +581,18 @@ fun CropsAndCampaignCard(
   onUpdatePlantingYear: (String) -> Unit,
   onUpdateIntercropping: (String) -> Unit,
   modifier: Modifier = Modifier,
+  customUserCrops: List<String> = emptyList(),
+  onUpdateCustomMainCrop: (String) -> Unit = {},
+  onAddCustomCropChip: (String) -> Unit = {},
+  onRemoveCustomCropChip: (String) -> Unit = {},
 ) {
+  val externalCustomText =
+    if (CropVarietyType.isCustomCrop(parcel.mainCrop)) parcel.mainCrop else ""
+  var customCropInput by
+    remember(parcel.id, externalCustomText) { mutableStateOf(externalCustomText) }
+
   var yieldInput by
-    remember(parcel.id, parcel.mainCrop) {
+    remember(parcel.id, parcel.estimatedYieldTonsPerHa) {
       mutableStateOf(String.format(Locale.US, "%.1f", parcel.estimatedYieldTonsPerHa))
     }
   var yearInput by remember(parcel.id) { mutableStateOf(parcel.plantingYear) }
@@ -665,7 +683,236 @@ fun CropsAndCampaignCard(
 
       Spacer(modifier = Modifier.height(8.dp))
 
-      // 2x2 Main Crop Grid
+      // Free-form Empty Custom Product Input Card
+      Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier =
+          Modifier.fillMaxWidth()
+            .border(
+              1.dp,
+              if (CropVarietyType.isCustomCrop(parcel.mainCrop)) MaterialTheme.colorScheme.primary
+              else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+              RoundedCornerShape(14.dp),
+            ),
+      ) {
+        Column(
+          modifier = Modifier.fillMaxWidth().padding(12.dp),
+          verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+              modifier = Modifier.weight(1f),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.EditNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+              )
+              Text(
+                text = stringResource(R.string.custom_main_crop_field_label),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+            }
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              color =
+                if (parcel.mainCrop.isBlank()) MaterialTheme.colorScheme.surfaceContainerHighest
+                else MaterialTheme.colorScheme.primaryContainer,
+              modifier = Modifier.testTag("active_main_crop_status_badge"),
+            ) {
+              Text(
+                text =
+                  if (parcel.mainCrop.isBlank()) {
+                    "فارغ حالياً"
+                  } else {
+                    CropVarietyType.resolveDisplayTitleAr(parcel.mainCrop)
+                  },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color =
+                  if (parcel.mainCrop.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant
+                  else MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+              )
+            }
+          }
+
+          OutlinedTextField(
+            value = customCropInput,
+            onValueChange = { typed ->
+              val bounded = typed.take(80)
+              customCropInput = bounded
+              onUpdateCustomMainCrop(bounded)
+            },
+            placeholder = {
+              Text(
+                text = stringResource(R.string.custom_main_crop_placeholder),
+                style = MaterialTheme.typography.bodyMedium,
+              )
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions =
+              KeyboardActions(
+                onDone = {
+                  if (customCropInput.trim().isNotEmpty()) {
+                    onAddCustomCropChip(customCropInput)
+                  }
+                }
+              ),
+            leadingIcon = {
+              Icon(
+                imageVector = Icons.Filled.Eco,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+              )
+            },
+            trailingIcon = {
+              if (customCropInput.isNotEmpty() || parcel.mainCrop.isNotBlank()) {
+                IconButton(
+                  onClick = {
+                    customCropInput = ""
+                    onUpdateCustomMainCrop("")
+                  },
+                  modifier = Modifier.size(48.dp).testTag("clear_main_crop_button"),
+                ) {
+                  Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.custom_main_crop_clear_desc),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+              }
+            },
+            shape = RoundedCornerShape(10.dp),
+            colors =
+              OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+              ),
+            modifier = Modifier.fillMaxWidth().testTag("custom_main_crop_input"),
+          )
+
+          FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            FilledTonalButton(
+              onClick = { onAddCustomCropChip(customCropInput) },
+              enabled = customCropInput.trim().isNotEmpty(),
+              shape = RoundedCornerShape(10.dp),
+              modifier = Modifier.height(48.dp).testTag("add_custom_crop_button"),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text(
+                text = stringResource(R.string.custom_main_crop_add_btn),
+                fontWeight = FontWeight.Bold,
+              )
+            }
+
+            FilterChip(
+              selected = parcel.mainCrop.isBlank(),
+              onClick = {
+                customCropInput = ""
+                onUpdateCustomMainCrop("")
+              },
+              label = { Text(stringResource(R.string.custom_main_crop_blank_chip)) },
+              modifier = Modifier.height(48.dp).testTag("crop_option_blank"),
+            )
+          }
+
+          if (customUserCrops.isNotEmpty()) {
+            Text(
+              text = stringResource(R.string.custom_main_crop_saved_label),
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+              customUserCrops.forEachIndexed { idx, savedCrop ->
+                val isChipSelected =
+                  parcel.mainCrop.trim().equals(savedCrop.trim(), ignoreCase = true)
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                  FilterChip(
+                    selected = isChipSelected,
+                    onClick = {
+                      if (isChipSelected) {
+                        customCropInput = ""
+                        onUpdateCustomMainCrop("")
+                      } else {
+                        customCropInput = savedCrop
+                        onUpdateCustomMainCrop(savedCrop)
+                      }
+                    },
+                    label = { Text(savedCrop) },
+                    leadingIcon =
+                      if (isChipSelected) {
+                        {
+                          Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                          )
+                        }
+                      } else {
+                        null
+                      },
+                    modifier = Modifier.height(48.dp).testTag("saved_custom_crop_chip_$idx"),
+                  )
+                  IconButton(
+                    onClick = { onRemoveCustomCropChip(savedCrop) },
+                    modifier = Modifier.size(36.dp).testTag("remove_saved_custom_crop_$idx"),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Filled.Close,
+                      contentDescription = "حذف المنتوج المخصص $savedCrop",
+                      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                      modifier = Modifier.size(16.dp),
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(12.dp))
+
+      Text(
+        text = stringResource(R.string.preset_crops_optional_label),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+
+      Spacer(modifier = Modifier.height(8.dp))
+
+      // 2x2 Optional Reference Crop Grid
       val crops = CropVarietyType.entries
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (rowIdx in 0..1) {

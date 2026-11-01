@@ -2,12 +2,16 @@ package com.example.data.repository
 
 import com.example.base.FirestoreEmulatorTestBase
 import com.example.data.model.AppLanguage
+import com.example.data.model.FavoriteTargetType
+import com.example.data.model.IdentityVerificationData
 import com.example.data.model.MarketplaceOrder
 import com.example.data.model.PartnerCatalogItem
 import com.example.data.model.RoleSpecificProfile
+import com.example.data.model.UserReputationSummary
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -290,6 +294,292 @@ class RoleAccountRepositoryRuleTest : FirestoreEmulatorTestBase() {
       val fsEx = e.unwrapFirestoreException()
       assertNotNull(fsEx)
       assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, fsEx?.code)
+    }
+  }
+
+  @Test
+  fun saveOnboardingWithIdentityAndOptionalFarmerCard_succeedsAndEnforcesPiiIsolation() {
+    runBlocking {
+      val farmerUid = signInTestUser("id.verified.farmer@fellah.dz")
+      val farmerRepo = RoleAccountRepository(firestore, auth)
+
+      // 1. Register with National ID Card only (no Farmer Card yet)
+      val idOnlyRes =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          farmerRepo.saveOnboardingProgress(
+            displayName = "بلقاسم بن عمر",
+            email = "id.verified.farmer@fellah.dz",
+            preferredLanguage = AppLanguage.AR,
+            selectedRoleCodes = listOf("farmer"),
+            chosenDefaultRole = "farmer",
+            step = 5,
+            completed = true,
+            identityVerification =
+              IdentityVerificationData(
+                nationalIdScanned = true,
+                nationalIdNumber = "109850712003340009",
+                nationalIdHolderName = "بلقاسم بن عمر",
+                farmerCardScanned = false,
+                farmerCardNumber = "",
+                farmerCardWilaya = "",
+              ),
+          )
+        }
+      assertTrue(
+        "Expected registration with National ID Card only to succeed: ${idOnlyRes.exceptionOrNull()}",
+        idOnlyRes.isSuccess,
+      )
+      val savedIdOnly = idOnlyRes.getOrThrow()
+      assertTrue(savedIdOnly.nationalIdScanned)
+      assertEquals("109850712003340009", savedIdOnly.nationalIdNumber)
+      assertFalse(savedIdOnly.farmerCardScanned)
+
+      // 2. Later scan/attach optional Farmer Card (بطاقة الفلاح)
+      val attachFarmerCard =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          farmerRepo.updateIdentityDocuments(
+            IdentityVerificationData(
+              nationalIdScanned = true,
+              nationalIdNumber = "109850712003340009",
+              nationalIdHolderName = "بلقاسم بن عمر",
+              farmerCardScanned = true,
+              farmerCardNumber = "CAW-07-2026-4412",
+              farmerCardWilaya = "07 - بسكرة (Biskra)",
+            )
+          )
+        }
+      assertTrue("Expected optional Farmer Card update to succeed", attachFarmerCard.isSuccess)
+
+      val refreshed = withTimeout(DEFAULT_TIMEOUT_MS) { farmerRepo.getUserAccount(farmerUid).getOrThrow() }
+      assertNotNull(refreshed)
+      assertTrue(refreshed!!.farmerCardScanned)
+      assertEquals("CAW-07-2026-4412", refreshed.farmerCardNumber)
+
+      // 3. Cross-user intruder cannot read farmer's National ID or Farmer Card PII
+      signInTestUser("intruder.pii@fellah.dz")
+      val intruderRepo = RoleAccountRepository(firestore, auth)
+      val crossPiiRead = withTimeout(DEFAULT_TIMEOUT_MS) { intruderRepo.getUserAccount(farmerUid) }
+      assertTrue(crossPiiRead.isFailure)
+      assertEquals(
+        FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        crossPiiRead.exceptionOrNull()?.unwrapFirestoreException()?.code,
+      )
+    }
+  }
+
+  @Test
+  fun userRatingsAndFavorites_enforceAntiSelfRatingStarPointsAndOwnerIsolation() {
+    runBlocking {
+      val traderUid = signInTestUser("rated.trader@fellah.dz")
+      val traderRepo = RoleAccountRepository(firestore, auth)
+      withTimeout(DEFAULT_TIMEOUT_MS) {
+        traderRepo
+          .saveOnboardingProgress(
+            displayName = "مؤسسة الواحة للجملة",
+            email = "rated.trader@fellah.dz",
+            preferredLanguage = AppLanguage.AR,
+            selectedRoleCodes = listOf("trader"),
+            chosenDefaultRole = "trader",
+            step = 5,
+            completed = true,
+          )
+          .getOrThrow()
+      }
+
+      // Sign in as Farmer who will rate Trader and bookmark favorites
+      val farmerUid = signInTestUser("reviewer.farmer@fellah.dz")
+      val farmerRepo = RoleAccountRepository(firestore, auth)
+      withTimeout(DEFAULT_TIMEOUT_MS) {
+        farmerRepo
+          .saveOnboardingProgress(
+            displayName = "الحاج لخضر الفلاح",
+            email = "reviewer.farmer@fellah.dz",
+            preferredLanguage = AppLanguage.AR,
+            selectedRoleCodes = listOf("farmer"),
+            chosenDefaultRole = "farmer",
+            step = 5,
+            completed = true,
+          )
+          .getOrThrow()
+      }
+
+      // 1. Self-rating is rejected
+      val selfRateRes =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          farmerRepo.submitOrUpdateUserRating(
+            reviewerName = "الحاج لخضر",
+            reviewerRole = "farmer",
+            targetUserId = farmerUid,
+            targetName = "الحاج لخضر",
+            targetRole = "farmer",
+            stars = 5,
+            comment = "تقييم ذاتي",
+          )
+        }
+      assertTrue(selfRateRes.isFailure)
+
+      // 2. Farmer submits 5-star rating (100 points) for Trader
+      val rate5Res =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          farmerRepo.submitOrUpdateUserRating(
+            reviewerName = "الحاج لخضر الفلاح",
+            reviewerRole = "farmer",
+            targetUserId = traderUid,
+            targetName = "مؤسسة الواحة للجملة",
+            targetRole = "trader",
+            stars = 5,
+            comment = "دفع فوري وشفافية في الوزن",
+            contextItemId = "listing_deglet_01",
+          )
+        }
+      assertTrue("Expected 5-star rating to succeed: ${rate5Res.exceptionOrNull()}", rate5Res.isSuccess)
+
+      val streamedRatings =
+        withTimeout(FLOW_TIMEOUT_MS) {
+          farmerRepo.observePublishedRatings().first { list ->
+            list.any { it.targetUserId == traderUid && it.stars == 5 }
+          }
+        }
+      val summary5 = UserReputationSummary.fromRatings(traderUid, streamedRatings)
+      assertEquals(5.0, summary5.averageStars, 0.01)
+      assertEquals(100, summary5.trustPointsOutOf100)
+      assertEquals(1, summary5.totalRatings)
+
+      // 3. Farmer updates rating to 4 stars (80 points) — deterministic ID prevents duplicate rating
+      val rate4Res =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          farmerRepo.submitOrUpdateUserRating(
+            reviewerName = "الحاج لخضر الفلاح",
+            reviewerRole = "farmer",
+            targetUserId = traderUid,
+            targetName = "مؤسسة الواحة للجملة",
+            targetRole = "trader",
+            stars = 4,
+            comment = "معاملة طيبة جداً",
+          )
+        }
+      assertTrue("Expected rating update to succeed: ${rate4Res.exceptionOrNull()}", rate4Res.isSuccess)
+
+      val updatedRatings =
+        withTimeout(FLOW_TIMEOUT_MS) {
+          farmerRepo.observePublishedRatings().first { list ->
+            list.any { it.targetUserId == traderUid && it.stars == 4 }
+          }
+        }
+      val summary4 = UserReputationSummary.fromRatings(traderUid, updatedRatings)
+      assertEquals(1, summary4.totalRatings)
+      assertEquals(80, summary4.trustPointsOutOf100)
+
+      // 4. Farmer toggles Favorite on Trader (operator) and a harvest listing
+      val addFavOperator =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          farmerRepo.toggleFavorite(
+            favoriteType = FavoriteTargetType.OPERATOR,
+            targetId = traderUid,
+            targetOwnerId = traderUid,
+            targetTitle = "مؤسسة الواحة للجملة",
+            targetSubtitle = "07 - بسكرة (Biskra) • تاجر الجملة والتجزئة",
+            targetRole = "trader",
+          )
+        }
+      assertTrue(addFavOperator.getOrThrow())
+
+      val farmerFavs =
+        withTimeout(FLOW_TIMEOUT_MS) {
+          farmerRepo.observeUserFavorites(farmerUid).first { it.isNotEmpty() }
+        }
+      assertEquals(1, farmerFavs.size)
+      assertEquals("مؤسسة الواحة للجملة", farmerFavs.first().targetTitle)
+
+      // 5. Cross-user Trader CANNOT delete Farmer's rating nor read Farmer's private favorites
+      signInTestUser("rated.trader@fellah.dz")
+      val tamperRating =
+        try {
+          withTimeout(DEFAULT_TIMEOUT_MS) {
+            firestore.collection("user_ratings").document("${farmerUid}_$traderUid").delete().await()
+          }
+          false
+        } catch (e: Exception) {
+          e.unwrapFirestoreException()?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
+        }
+      assertTrue("Expected rated user to be denied deleting reviewer's rating", tamperRating)
+
+      try {
+        withTimeout(FLOW_TIMEOUT_MS) {
+          traderRepo.observeUserFavorites(farmerUid).first()
+        }
+        fail("Expected cross-user observeUserFavorites to fail with PERMISSION_DENIED")
+      } catch (e: Exception) {
+        assertEquals(
+          FirebaseFirestoreException.Code.PERMISSION_DENIED,
+          e.unwrapFirestoreException()?.code,
+        )
+      }
+
+      // 6. Farmer toggles favorite again -> removes cleanly
+      signInTestUser("reviewer.farmer@fellah.dz")
+      val removeFavOperator =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          farmerRepo.toggleFavorite(
+            favoriteType = FavoriteTargetType.OPERATOR,
+            targetId = traderUid,
+            targetOwnerId = traderUid,
+            targetTitle = "مؤسسة الواحة للجملة",
+            targetSubtitle = "07 - بسكرة",
+            targetRole = "trader",
+          )
+        }
+      assertFalse(removeFavOperator.getOrThrow())
+    }
+  }
+
+  @Test
+  fun phoneOtpRegistration_savesVerifiedPhoneThenCompletesEmailAndRoles() {
+    runBlocking {
+      val phoneUid = signInTestUser("phone.otp.farmer@fellah.dz")
+      val phoneRepo = RoleAccountRepository(firestore, auth)
+
+      // 1. Save Step 2 draft right after SMS OTP confirmation with verified phone + newly entered email
+      val draftRes =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          phoneRepo.saveOnboardingProgress(
+            displayName = "عبد القادر الفلاح",
+            email = "abdelkader@fellah.dz",
+            preferredLanguage = AppLanguage.AR,
+            selectedRoleCodes = emptyList(),
+            chosenDefaultRole = "",
+            step = 2,
+            completed = false,
+            phoneNumber = "+213550123456",
+            phoneVerified = true,
+          )
+        }
+      assertTrue("Expected phone OTP draft save to succeed: ${draftRes.exceptionOrNull()}", draftRes.isSuccess)
+
+      // 2. Complete onboarding with roles and verify persisted phoneNumber, phoneVerified, and email
+      val completeRes =
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+          phoneRepo.saveOnboardingProgress(
+            displayName = "عبد القادر الفلاح",
+            email = "abdelkader@fellah.dz",
+            preferredLanguage = AppLanguage.AR,
+            selectedRoleCodes = listOf("farmer", "trader"),
+            chosenDefaultRole = "farmer",
+            step = 5,
+            completed = true,
+            phoneNumber = "+213550123456",
+            phoneVerified = true,
+          )
+        }
+      assertTrue("Expected phone OTP onboarding completion to succeed: ${completeRes.exceptionOrNull()}", completeRes.isSuccess)
+
+      val persisted = withTimeout(DEFAULT_TIMEOUT_MS) { phoneRepo.getUserAccount(phoneUid).getOrThrow() }
+      assertNotNull(persisted)
+      assertEquals("+213550123456", persisted!!.phoneNumber)
+      assertTrue(persisted.phoneVerified)
+      assertEquals("abdelkader@fellah.dz", persisted.email)
+      assertEquals("عبد القادر الفلاح", persisted.displayName)
+      assertTrue(persisted.onboardingCompleted)
     }
   }
 

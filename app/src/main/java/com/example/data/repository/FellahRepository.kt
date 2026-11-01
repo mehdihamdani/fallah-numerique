@@ -135,12 +135,15 @@ class FellahRepository(
     val targetId = if (isCreate) UUID.randomUUID().toString() else parcel.id
     val docRef = db.collection(PARCELS_COLLECTION).document(targetId)
 
+    val cleanMainCrop = parcel.mainCrop.trim().take(80)
+
     return try {
       if (isCreate) {
         val toCreate =
           parcel.copy(
             id = targetId,
             userId = uid,
+            mainCrop = cleanMainCrop,
             createdAt = null,
             updatedAt = null,
           )
@@ -160,6 +163,7 @@ class FellahRepository(
           parcel.copy(
             id = targetId,
             userId = uid,
+            mainCrop = cleanMainCrop,
             createdAt = existingCreatedAt,
             updatedAt = null,
           )
@@ -245,6 +249,12 @@ class FellahRepository(
   suspend fun publishMarketListing(listing: MarketListing): Result<String> {
     val uid = requireUserId()
     require(listing.parcelId.isNotBlank()) { "Parcel must be saved before linking to market." }
+    val cleanCropType = listing.cropType.trim().take(80)
+    if (cleanCropType.isBlank()) {
+      return Result.failure(
+        IllegalArgumentException("يرجى تحديد أو كتابة اسم المنتوج الفلاحي قبل النشر في السوق العام")
+      )
+    }
     val listingId = UUID.randomUUID().toString()
     val listingRef = db.collection(MARKET_COLLECTION).document(listingId)
     val parcelRef = db.collection(PARCELS_COLLECTION).document(listing.parcelId)
@@ -254,6 +264,7 @@ class FellahRepository(
         listing.copy(
           id = listingId,
           userId = uid,
+          cropType = cleanCropType,
           status = "active",
           createdAt = null,
           updatedAt = null,

@@ -126,7 +126,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.data.ai.FellahPlatformDataSnapshot
 import com.example.data.model.AppLanguage
+import com.example.data.model.IdentityVerificationData
 import com.example.data.model.RoleNavigationConfig
+import com.example.data.model.UserFavoriteRecord
+import com.example.data.model.UserRatingRecord
+import com.example.data.model.UserReputationSummary
 import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
 import com.example.ui.auth.HexagonShape
@@ -159,6 +163,7 @@ fun FellahWorkspaceScreen(
   val transportRequestsState by viewModel.transportRequestsState.collectAsStateWithLifecycle()
   val serviceBookingsState by viewModel.serviceBookingsState.collectAsStateWithLifecycle()
   val offlineRegions by viewModel.offlineRegionsState.collectAsStateWithLifecycle()
+  val localSavedPlots by viewModel.localSavedPlotsState.collectAsStateWithLifecycle()
   val pendingOfflineWrites by viewModel.pendingOfflineWritesCount.collectAsStateWithLifecycle()
   val userAccountState by viewModel.userAccountState.collectAsStateWithLifecycle()
   val roleProfiles by viewModel.roleProfilesState.collectAsStateWithLifecycle()
@@ -167,10 +172,16 @@ fun FellahWorkspaceScreen(
   val userOrdersState by viewModel.userOrdersState.collectAsStateWithLifecycle()
   val openRoleOrders by viewModel.openRoleOrdersState.collectAsStateWithLifecycle()
   val accountMessages by viewModel.accountMessagesState.collectAsStateWithLifecycle()
+  val publishedRatings by viewModel.publishedRatingsState.collectAsStateWithLifecycle()
+  val reputationByUser by viewModel.reputationByUserState.collectAsStateWithLifecycle()
+  val userFavorites by viewModel.userFavoritesState.collectAsStateWithLifecycle()
 
   val assignedRoles =
     ((userAccountState as? UiState.Success)?.data?.parsedAssignedRoles())
       ?.takeIf { it.isNotEmpty() } ?: listOf(editorState.activeRole)
+  val currentIdentityVerification =
+    (userAccountState as? UiState.Success)?.data?.toIdentityVerificationData()
+      ?: IdentityVerificationData()
 
   val aiViewModel: FellahAiViewModel =
     customAiViewModel
@@ -321,7 +332,6 @@ fun FellahWorkspaceScreen(
                 onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
                 onOpenDrawer = {},
                 onSearchChanged = viewModel::updateSearchQuery,
-                onLanguageSelected = viewModel::setLanguage,
                 onSwitchRole = viewModel::switchActiveRole,
                 onManageRolesInSettings = { viewModel.navigateToSection(WorkspaceSection.SETTINGS) },
                 onOpenFellahAi = { showAiModalSheet = true },
@@ -353,17 +363,22 @@ fun FellahWorkspaceScreen(
               isTwoColumnGrid = true,
               editorState = editorState,
               assignedRoles = assignedRoles,
+              currentIdentityVerification = currentIdentityVerification,
               roleProfiles = roleProfiles,
               activePartnerCatalogState = activePartnerCatalogState,
               userPartnerCatalogState = userPartnerCatalogState,
               userOrdersState = userOrdersState,
               openRoleOrders = openRoleOrders,
               accountMessages = accountMessages,
+              publishedRatings = publishedRatings,
+              reputationByUser = reputationByUser,
+              userFavorites = userFavorites,
               userParcelsState = userParcelsState,
               marketListingsState = marketListingsState,
               transportRequestsState = transportRequestsState,
               serviceBookingsState = serviceBookingsState,
               offlineRegions = offlineRegions,
+              localSavedPlots = localSavedPlots,
               pendingOfflineWrites = pendingOfflineWrites,
               currentUser = currentUser,
               viewModel = viewModel,
@@ -437,7 +452,6 @@ fun FellahWorkspaceScreen(
                 onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
                 onOpenDrawer = { scope.launch { drawerState.open() } },
                 onSearchChanged = viewModel::updateSearchQuery,
-                onLanguageSelected = viewModel::setLanguage,
                 onSwitchRole = viewModel::switchActiveRole,
                 onManageRolesInSettings = { viewModel.navigateToSection(WorkspaceSection.SETTINGS) },
                 onOpenFellahAi = { showAiModalSheet = true },
@@ -469,17 +483,22 @@ fun FellahWorkspaceScreen(
               isTwoColumnGrid = false,
               editorState = editorState,
               assignedRoles = assignedRoles,
+              currentIdentityVerification = currentIdentityVerification,
               roleProfiles = roleProfiles,
               activePartnerCatalogState = activePartnerCatalogState,
               userPartnerCatalogState = userPartnerCatalogState,
               userOrdersState = userOrdersState,
               openRoleOrders = openRoleOrders,
               accountMessages = accountMessages,
+              publishedRatings = publishedRatings,
+              reputationByUser = reputationByUser,
+              userFavorites = userFavorites,
               userParcelsState = userParcelsState,
               marketListingsState = marketListingsState,
               transportRequestsState = transportRequestsState,
               serviceBookingsState = serviceBookingsState,
               offlineRegions = offlineRegions,
+              localSavedPlots = localSavedPlots,
               pendingOfflineWrites = pendingOfflineWrites,
               currentUser = currentUser,
               viewModel = viewModel,
@@ -531,7 +550,9 @@ fun FellahWorkspaceScreen(
         parcel = editorState.activeParcel,
         defaultOperatorName = currentUser.displayName ?: "Coopérative El Baraka",
         onDismiss = { viewModel.setShowPublishMarketDialog(false) },
-        onConfirmPublish = viewModel::publishParcelToMarket,
+        onConfirmPublish = { operatorName, tons, price, customCrop ->
+          viewModel.publishParcelToMarket(operatorName, tons, price, customCrop)
+        },
       )
     }
 
@@ -572,17 +593,22 @@ private fun WorkspaceBodyContent(
   isTwoColumnGrid: Boolean,
   editorState: com.example.ui.viewmodel.ParcelEditorState,
   assignedRoles: List<UserRole>,
+  currentIdentityVerification: IdentityVerificationData,
   roleProfiles: Map<String, com.example.data.model.RoleSpecificProfile>,
   activePartnerCatalogState: UiState<List<com.example.data.model.PartnerCatalogItem>>,
   userPartnerCatalogState: UiState<List<com.example.data.model.PartnerCatalogItem>>,
   userOrdersState: UiState<List<com.example.data.model.MarketplaceOrder>>,
   openRoleOrders: List<com.example.data.model.MarketplaceOrder>,
   accountMessages: List<com.example.data.model.PlatformMessage>,
+  publishedRatings: List<UserRatingRecord>,
+  reputationByUser: Map<String, UserReputationSummary>,
+  userFavorites: List<UserFavoriteRecord>,
   userParcelsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.AgriculturalParcel>>,
   marketListingsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.MarketListing>>,
   transportRequestsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.TransportRequest>>,
   serviceBookingsState: com.example.ui.viewmodel.UiState<List<com.example.data.model.ServiceBooking>>,
   offlineRegions: List<com.example.data.offline.OfflineMapRegionEntity>,
+  localSavedPlots: List<com.example.data.offline.SavedPlotWithCoordinates>,
   pendingOfflineWrites: Int,
   currentUser: FirebaseUser,
   viewModel: FellahViewModel,
@@ -790,10 +816,21 @@ private fun WorkspaceBodyContent(
               preferGoogleMapsEngine = editorState.preferGoogleMapsEngine,
               isEffectiveOffline = editorState.isEffectiveOffline,
               downloadedRegionsCount = offlineRegions.size,
+              isSavingParcel = editorState.isSaving,
               onToggleMapEngine = viewModel::setPreferGoogleMapsEngine,
               onGoogleMapLatLngTap = viewModel::onGoogleMapLatLngTapped,
               onGoogleMapVertexDrag = viewModel::onGoogleMapVertexDragged,
               onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
+              onUndoVertex = viewModel::undoLastPolygonVertex,
+              onClearPolygon = viewModel::clearPolygonVerticesForDrawing,
+              onRemoveVertexAt = viewModel::removePolygonVertexAt,
+              onPlotNameChanged = viewModel::updatePlotNameQuick,
+              onSavePlotBoundary = viewModel::saveCurrentParcel,
+              localSavedPlots = localSavedPlots,
+              activeLocalPlotId = editorState.activeLocalPlotId,
+              onLoadLocalPlot = viewModel::loadLocalSavedPlot,
+              onRenameLocalPlot = viewModel::renameLocalSavedPlot,
+              onDeleteLocalPlot = viewModel::deleteLocalSavedPlot,
             )
 
             Column(
@@ -819,6 +856,10 @@ private fun WorkspaceBodyContent(
                 onUpdateYield = viewModel::updateEstimatedYield,
                 onUpdatePlantingYear = viewModel::updatePlantingYear,
                 onUpdateIntercropping = viewModel::updateIntercropping,
+                customUserCrops = editorState.customUserCrops,
+                onUpdateCustomMainCrop = viewModel::updateCustomMainCrop,
+                onAddCustomCropChip = viewModel::addCustomCropToSavedList,
+                onRemoveCustomCropChip = viewModel::removeSavedCustomCrop,
               )
             }
           }
@@ -839,10 +880,21 @@ private fun WorkspaceBodyContent(
             preferGoogleMapsEngine = editorState.preferGoogleMapsEngine,
             isEffectiveOffline = editorState.isEffectiveOffline,
             downloadedRegionsCount = offlineRegions.size,
+            isSavingParcel = editorState.isSaving,
             onToggleMapEngine = viewModel::setPreferGoogleMapsEngine,
             onGoogleMapLatLngTap = viewModel::onGoogleMapLatLngTapped,
             onGoogleMapVertexDrag = viewModel::onGoogleMapVertexDragged,
             onOpenOfflineManager = { viewModel.setShowOfflineRegionsDialog(true) },
+            onUndoVertex = viewModel::undoLastPolygonVertex,
+            onClearPolygon = viewModel::clearPolygonVerticesForDrawing,
+            onRemoveVertexAt = viewModel::removePolygonVertexAt,
+            onPlotNameChanged = viewModel::updatePlotNameQuick,
+            onSavePlotBoundary = viewModel::saveCurrentParcel,
+            localSavedPlots = localSavedPlots,
+            activeLocalPlotId = editorState.activeLocalPlotId,
+            onLoadLocalPlot = viewModel::loadLocalSavedPlot,
+            onRenameLocalPlot = viewModel::renameLocalSavedPlot,
+            onDeleteLocalPlot = viewModel::deleteLocalSavedPlot,
           )
 
           SoilCharacteristicsCard(
@@ -864,6 +916,10 @@ private fun WorkspaceBodyContent(
             onUpdateYield = viewModel::updateEstimatedYield,
             onUpdatePlantingYear = viewModel::updatePlantingYear,
             onUpdateIntercropping = viewModel::updateIntercropping,
+            customUserCrops = editorState.customUserCrops,
+            onUpdateCustomMainCrop = viewModel::updateCustomMainCrop,
+            onAddCustomCropChip = viewModel::addCustomCropToSavedList,
+            onRemoveCustomCropChip = viewModel::removeSavedCustomCrop,
           )
         }
       }
@@ -882,6 +938,7 @@ private fun WorkspaceBodyContent(
       }
 
       WorkspaceSection.PUBLIC_MARKET -> {
+        val reviewerName = currentUser.displayName ?: editorState.operatorDisplayName
         PublicMarketScreen(
           listingsState = marketListingsState,
           currentUserId = currentUser.uid,
@@ -897,8 +954,24 @@ private fun WorkspaceBodyContent(
           partnerCatalogState = activePartnerCatalogState,
           activeRole = editorState.activeRole,
           language = editorState.language,
-          requesterDisplayName = currentUser.displayName ?: editorState.operatorDisplayName,
+          requesterDisplayName = reviewerName,
           onSubmitMarketOrder = viewModel::submitMarketplaceOrder,
+          reputationByUser = reputationByUser,
+          publishedRatings = publishedRatings,
+          userFavorites = userFavorites,
+          onSubmitRating = { targetUserId, targetName, targetRole, stars, comment, contextItemId ->
+            viewModel.submitUserRating(
+              reviewerName = reviewerName,
+              targetUserId = targetUserId,
+              targetName = targetName,
+              targetRole = targetRole,
+              stars = stars,
+              comment = comment,
+              contextItemId = contextItemId,
+            )
+          },
+          onToggleFavorite = viewModel::toggleFavoriteItem,
+          onRemoveFavorite = viewModel::removeFavorite,
         )
       }
 
@@ -985,6 +1058,15 @@ private fun WorkspaceBodyContent(
           onAddRoles = { codes -> viewModel.addRolesToCurrentAccount(codes, makeFirstActive = true) },
           onRemoveRole = viewModel::removeRoleFromCurrentAccount,
           onSaveRoleProfile = viewModel::saveRoleProfileDetails,
+          identityVerification = currentIdentityVerification,
+          onSaveIdentityVerification = viewModel::updateIdentityVerification,
+          myReputation =
+            reputationByUser[currentUser.uid]
+              ?: UserReputationSummary(targetUserId = currentUser.uid),
+          favoritesCount = userFavorites.size,
+          onOpenFavoritesInMarket = {
+            viewModel.navigateToSection(WorkspaceSection.PUBLIC_MARKET)
+          },
         )
       }
 
@@ -1009,6 +1091,10 @@ private fun WorkspaceBodyContent(
           onSwitchRole = viewModel::switchActiveRole,
           onOpenPublishHarvestDialog = { viewModel.setShowPublishMarketDialog(true) },
           matinViewModel = matinViewModel,
+          myReputation =
+            reputationByUser[currentUser.uid]
+              ?: UserReputationSummary(targetUserId = currentUser.uid),
+          favoritesCount = userFavorites.size,
         )
       }
 
@@ -1027,11 +1113,12 @@ private fun WorkspaceBodyContent(
       }
 
       WorkspaceSection.ORDERS_AND_REQUESTS -> {
+        val reviewerName = currentUser.displayName ?: editorState.operatorDisplayName
         OrdersAndQuotesScreen(
           activeRole = editorState.activeRole,
           language = editorState.language,
           currentUserId = currentUser.uid,
-          requesterDisplayName = currentUser.displayName ?: editorState.operatorDisplayName,
+          requesterDisplayName = reviewerName,
           defaultWilaya = editorState.defaultWilaya,
           myOrdersState = userOrdersState,
           openRoleOrders = openRoleOrders,
@@ -1039,6 +1126,21 @@ private fun WorkspaceBodyContent(
           onSubmitQuote = viewModel::submitQuotationOnOrder,
           onUpdateOrderStatus = viewModel::updateMarketplaceOrderState,
           onBackToDashboard = { viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD) },
+          reputationByUser = reputationByUser,
+          publishedRatings = publishedRatings,
+          userFavorites = userFavorites,
+          onSubmitRating = { targetUserId, targetName, targetRole, stars, comment, contextItemId ->
+            viewModel.submitUserRating(
+              reviewerName = reviewerName,
+              targetUserId = targetUserId,
+              targetName = targetName,
+              targetRole = targetRole,
+              stars = stars,
+              comment = comment,
+              contextItemId = contextItemId,
+            )
+          },
+          onToggleFavorite = viewModel::toggleFavoriteItem,
         )
       }
 
@@ -1380,7 +1482,6 @@ private fun TopOperatorBar(
   onOpenOfflineManager: () -> Unit,
   onOpenDrawer: () -> Unit,
   onSearchChanged: (String) -> Unit,
-  onLanguageSelected: (AppLanguage) -> Unit,
   onSwitchRole: (UserRole) -> Unit,
   onManageRolesInSettings: () -> Unit,
   onOpenFellahAi: () -> Unit,
@@ -1652,37 +1753,6 @@ private fun TopOperatorBar(
                   if (isEffectiveOffline) MaterialTheme.colorScheme.onSecondaryContainer
                   else MaterialTheme.colorScheme.onPrimaryContainer,
               )
-            }
-          }
-        }
-
-        // Language Switcher FR / AR / EN
-        Surface(
-          shape = RoundedCornerShape(8.dp),
-          color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ) {
-          Row(modifier = Modifier.padding(2.dp)) {
-            AppLanguage.entries.forEach { lang ->
-              val active = language == lang
-              Surface(
-                shape = RoundedCornerShape(6.dp),
-                color =
-                  if (active) MaterialTheme.colorScheme.surfaceContainerLowest
-                  else Color.Transparent,
-                modifier =
-                  Modifier.clip(RoundedCornerShape(6.dp))
-                    .clickable { onLanguageSelected(lang) }
-                    .testTag("lang_${lang.code}"),
-              ) {
-                Text(
-                  text = lang.code,
-                  style = MaterialTheme.typography.labelSmall,
-                  color =
-                    if (active) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                  modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp),
-                )
-              }
             }
           }
         }
