@@ -796,13 +796,37 @@ class RoleAccountRepository(
       }
   }
 
+  /**
+   * Observes open service requests (`orderType == "service_quote"`, `providerId == ""`, `status == "pending"`)
+   * routed to `service_provider` operators in the provider's wilaya or commune.
+   */
+  fun observeOpenServiceOrdersForProvider(
+    providerWilaya: String,
+    providerCommune: String = "",
+  ): Flow<List<MarketplaceOrder>> {
+    val cleanWilaya = providerWilaya.trim()
+    val cleanCommune = providerCommune.trim()
+    return observeOpenOrdersForRole(UserRole.SERVICE_PROVIDER.code).map { orders ->
+      orders.filter { order ->
+        order.orderType == "service_quote" &&
+          (cleanWilaya.isBlank() ||
+            order.wilaya.equals(cleanWilaya, ignoreCase = true) ||
+            extractWilayaCode(order.wilaya) == extractWilayaCode(cleanWilaya) ||
+            (cleanCommune.isNotBlank() && order.commune.equals(cleanCommune, ignoreCase = true)))
+      }
+    }
+  }
+
+  private fun extractWilayaCode(wilayaLabel: String): String =
+    wilayaLabel.trim().substringBefore("-").trim().takeIf { it.isNotEmpty() }.orEmpty()
+
   suspend fun createMarketplaceOrder(order: MarketplaceOrder): Result<String> {
     val uid = requireUserId()
     val orderId = UUID.randomUUID().toString()
     val docRef = db.collection(ORDERS_COLLECTION).document(orderId)
     return try {
       val payload =
-        mapOf(
+        mutableMapOf<String, Any>(
           "requesterId" to uid,
           "requesterName" to order.requesterName.trim().ifBlank { "Opérateur" }.take(115),
           "requesterRole" to order.requesterRole.trim().lowercase(),
@@ -820,6 +844,22 @@ class RoleAccountRepository(
           "createdAt" to FieldValue.serverTimestamp(),
           "updatedAt" to FieldValue.serverTimestamp(),
         )
+      if (order.parcelId.isNotBlank()) {
+        payload["parcelId"] = order.parcelId.trim().take(128)
+      }
+      if (order.commune.isNotBlank()) {
+        payload["commune"] = order.commune.trim().take(80)
+      }
+      if (order.serviceCategory.isNotBlank()) {
+        payload["serviceCategory"] = order.serviceCategory.trim().take(60)
+      }
+      if (order.preferredDate.isNotBlank()) {
+        payload["preferredDate"] = order.preferredDate.trim().take(40)
+      }
+      if (order.centroidLat != null && order.centroidLng != null) {
+        payload["centroidLat"] = order.centroidLat.coerceIn(-90.0, 90.0)
+        payload["centroidLng"] = order.centroidLng.coerceIn(-180.0, 180.0)
+      }
       docRef.set(payload).await()
       Result.success(orderId)
     } catch (e: CancellationException) {
@@ -828,6 +868,50 @@ class RoleAccountRepository(
       handleFirestoreError(e, OperationType.CREATE, docRef.path)
       Result.failure(e)
     }
+  }
+
+  /**
+   * Provider flow: accepts an open `service_quote` request (`providerId == ""`, `status == "pending"`),
+   * setting `providerId` to the caller's UID, `status = "accepted"`, and updating `proposedPriceDzd`
+   * if the provider adjusts the price.
+   */
+  suspend fun acceptServiceOrder(
+    orderId: String,
+    adjustedPriceDzd: Double? = null,
+    providerNotes: String? = null,
+  ): Result<Unit> {
+    val uid = requireUserId()
+    val docRef = db.collection(ORDERS_COLLECTION).document(orderId)
+    return try {
+      val updates =
+        mutableMapOf<String, Any>(
+          "providerId" to uid,
+          "status" to "accepted",
+          "updatedAt" to FieldValue.serverTimestamp(),
+        )
+      if (adjustedPriceDzd != null) {
+        updates["proposedPriceDzd"] = adjustedPriceDzd.coerceIn(0.0, 100_000_000.0)
+      }
+      if (providerNotes != null) {
+        updates["notes"] = providerNotes.trim().take(290)
+      }
+      docRef.update(updates).await()
+      Result.success(Unit)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.UPDATE, docRef.path)
+      Result.failure(e)
+    }
+  }
+
+  /**
+   * Provider flow: marks an accepted request `"completed"`. Enforced by Firestore security rules
+   * so ONLY the assigned `providerId` holding `targetRole` can complete the request.
+   */
+  suspend fun completeServiceOrder(orderId: String, completionNotes: String? = null): Result<Unit> {
+    requireUserId()
+    return updateOrderStatus(orderId = orderId, nextStatus = "completed", notes = completionNotes)
   }
 
   /**

@@ -35,11 +35,19 @@ import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
 import com.example.data.network.AgriWeatherReport
 import com.example.data.network.OpenMeteoAgriWeatherClient
+import com.example.data.offline.FarmerServiceChoice
+import com.example.data.offline.FarmerServiceDraft
+import com.example.data.offline.FarmerServiceDraftStorage
+import com.example.data.offline.FarmerServiceFlowHelper
+import com.example.data.offline.FarmerServiceTile
+import com.example.data.offline.FarmerServiceWizardStage
 import com.example.data.offline.FellahOfflineDatabase
+import com.example.data.offline.InMemoryFarmerServiceDraftStorage
 import com.example.data.offline.LocalPlotRepository
 import com.example.data.offline.OfflineMapCacheRepository
 import com.example.data.offline.OfflineMapRegionEntity
 import com.example.data.offline.SavedPlotWithCoordinates
+import com.example.data.offline.SharedPrefsFarmerServiceDraftStorage
 import com.example.data.repository.FellahRepository
 import com.example.data.repository.RoleAccountRepository
 import com.example.util.GeoCoordinateMapper
@@ -80,7 +88,7 @@ data class ParcelEditorState(
   val mapLayerMode: MapLayerMode = MapLayerMode.SATELLITE,
   val mapTool: MapInteractionTool = MapInteractionTool.VIEW,
   val language: AppLanguage = AppLanguage.AR,
-  val activeSection: WorkspaceSection = WorkspaceSection.PARCEL_DELINEATION,
+  val activeSection: WorkspaceSection = WorkspaceSection.ROLE_DASHBOARD,
   val searchQuery: String = "",
   val isSaving: Boolean = false,
   val isSoilSlidersExpanded: Boolean = false,
@@ -120,6 +128,7 @@ class FellahViewModel(
   private val roleRepository: RoleAccountRepository? = null,
   private val localPlotRepository: LocalPlotRepository? = null,
   private val customCropPrefs: SharedPreferences? = null,
+  private val serviceDraftStorage: FarmerServiceDraftStorage = InMemoryFarmerServiceDraftStorage(),
 ) : ViewModel() {
 
   private val _editorState =
@@ -127,6 +136,13 @@ class FellahViewModel(
       ParcelEditorState(customUserCrops = loadPersistedCustomCrops(customCropPrefs))
     )
   val editorState: StateFlow<ParcelEditorState> = _editorState.asStateFlow()
+
+  private val _serviceDraftState = MutableStateFlow(serviceDraftStorage.loadDraft())
+  val serviceDraftState: StateFlow<FarmerServiceDraft> = _serviceDraftState.asStateFlow()
+
+  private val _isSubmittingServiceQuote = MutableStateFlow(false)
+  val isSubmittingServiceQuote: StateFlow<Boolean> = _isSubmittingServiceQuote.asStateFlow()
+
   private var hasAttemptedLegacyFarmerAutoMigration = false
   private var hasAppliedInitialLanding = false
 
@@ -210,10 +226,14 @@ class FellahViewModel(
   val marketListingsState: StateFlow<UiState<List<MarketListing>>> =
     repository
       .observeActiveMarketListings()
-      .map<List<MarketListing>, UiState<List<MarketListing>>> { UiState.Success(it) }
+      .map<List<MarketListing>, UiState<List<MarketListing>>> { cloudList ->
+        val cloudIds = cloudList.map { it.id }.toSet()
+        val nonConflictingCurated = defaultCuratedMarketListings.filter { it.id !in cloudIds }
+        UiState.Success(cloudList + nonConflictingCurated)
+      }
       .catch { error ->
         Log.w(TAG, "Error observing market listings", error)
-        emit(UiState.Error(error.localizedMessage ?: "تعذر تحميل إعلانات السوق العام"))
+        emit(UiState.Success(defaultCuratedMarketListings))
       }
       .stateIn(
         scope = viewModelScope,
@@ -261,8 +281,7 @@ class FellahViewModel(
             val nextSection =
               if (!hasAppliedInitialLanding && profile.onboardingCompleted) {
                 hasAppliedInitialLanding = true
-                if (resolvedRole == UserRole.FARMER) state.activeSection
-                else WorkspaceSection.ROLE_DASHBOARD
+                WorkspaceSection.ROLE_DASHBOARD
               } else if (state.activeSection !in allowedSections) {
                 WorkspaceSection.ROLE_DASHBOARD
               } else {
@@ -1258,6 +1277,7 @@ class FellahViewModel(
     availableTons: Double,
     pricePerKgDzd: Double,
     customCropOverride: String = "",
+    photoBase64: String = "",
   ) {
     val resolvedCrop =
       customCropOverride.trim().ifBlank { _editorState.value.activeParcel.mainCrop.trim() }.take(80)
@@ -1322,6 +1342,7 @@ class FellahViewModel(
           wilaya = currentParcel.wilaya.take(75),
           availableTons = availableTons.coerceIn(0.1, 99999.0),
           pricePerKgDzd = pricePerKgDzd.coerceIn(1.0, 99999.0),
+          photoBase64 = photoBase64,
         )
 
       repository
@@ -1904,6 +1925,158 @@ class FellahViewModel(
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Low-Literacy 3-Step Farmer Service Request Wizard (with Local Draft & Retry)
+  // ---------------------------------------------------------------------------
+
+  private fun persistAndUpdateServiceDraft(transform: (FarmerServiceDraft) -> FarmerServiceDraft) {
+    val updated = transform(_serviceDraftState.value)
+    serviceDraftStorage.saveDraft(updated)
+    _serviceDraftState.value = updated
+  }
+
+  fun selectFarmerServiceTile(tile: FarmerServiceTile) {
+    persistAndUpdateServiceDraft { draft ->
+      draft.copy(
+        wizardStage = FarmerServiceWizardStage.STEP_1_SERVICE,
+        selectedTileCode = tile.tileCode,
+        hasFailedSendToRetry = false,
+      )
+    }
+  }
+
+  fun selectFarmerSpecificService(choice: FarmerServiceChoice) {
+    persistAndUpdateServiceDraft { draft ->
+      draft.copy(
+        wizardStage = FarmerServiceWizardStage.STEP_2_DATE,
+        selectedCategoryCode = choice.categoryCode,
+        hasFailedSendToRetry = false,
+      )
+    }
+  }
+
+  fun startCallMyEngineerRequest() {
+    persistAndUpdateServiceDraft { draft ->
+      draft.copy(
+        wizardStage = FarmerServiceWizardStage.STEP_2_DATE,
+        selectedTileCode = "",
+        selectedCategoryCode = FarmerServiceChoice.CALL_MY_ENGINEER.categoryCode,
+        hasFailedSendToRetry = false,
+      )
+    }
+  }
+
+  fun selectFarmerServiceDate(isoDate: String, isCustomDate: Boolean) {
+    persistAndUpdateServiceDraft { draft ->
+      draft.copy(
+        wizardStage = FarmerServiceWizardStage.STEP_3_CONFIRM,
+        selectedDateIso = isoDate,
+        isCustomDate = isCustomDate,
+        hasFailedSendToRetry = false,
+      )
+    }
+  }
+
+  fun stepBackFarmerServiceWizard() {
+    persistAndUpdateServiceDraft { draft ->
+      val prevStage =
+        when (draft.wizardStage) {
+          FarmerServiceWizardStage.STEP_3_CONFIRM -> FarmerServiceWizardStage.STEP_2_DATE
+          FarmerServiceWizardStage.STEP_2_DATE ->
+            if (draft.selectedTileCode.isEmpty()) FarmerServiceWizardStage.GRID
+            else FarmerServiceWizardStage.STEP_1_SERVICE
+          FarmerServiceWizardStage.STEP_1_SERVICE -> FarmerServiceWizardStage.GRID
+          FarmerServiceWizardStage.STATUS_SCREEN -> FarmerServiceWizardStage.GRID
+          FarmerServiceWizardStage.GRID -> FarmerServiceWizardStage.GRID
+        }
+      draft.copy(wizardStage = prevStage, hasFailedSendToRetry = false)
+    }
+  }
+
+  fun openFarmerServiceStatusScreen() {
+    persistAndUpdateServiceDraft { draft ->
+      draft.copy(wizardStage = FarmerServiceWizardStage.STATUS_SCREEN, hasFailedSendToRetry = false)
+    }
+  }
+
+  fun startNewFarmerServiceRequest() {
+    val clean = FarmerServiceDraft(wizardStage = FarmerServiceWizardStage.GRID)
+    serviceDraftStorage.saveDraft(clean)
+    _serviceDraftState.value = clean
+  }
+
+  fun submitFarmerServiceQuoteRequest(
+    localizedServiceTitle: String,
+    localizedUnitLabel: String,
+  ) {
+    val repo = roleRepository ?: return
+    val currentDraft = _serviceDraftState.value
+    val choice =
+      FarmerServiceChoice.fromCategoryCodeOrNull(currentDraft.selectedCategoryCode) ?: return
+
+    // Always persist draft locally BEFORE attempting submission over slow/intermittent connections
+    serviceDraftStorage.saveDraft(currentDraft.copy(hasFailedSendToRetry = false))
+
+    val parcels = (userParcelsState.value as? UiState.Success)?.data.orEmpty()
+    val prefill = FarmerServiceFlowHelper.resolveFirstParcelPrefill(parcels) ?: return
+    val catalog = (activePartnerCatalogState.value as? UiState.Success)?.data.orEmpty()
+    val indicative =
+      FarmerServiceFlowHelper.findIndicativeReferencePrice(
+        catalogItems = catalog,
+        serviceCategoryCode = choice.categoryCode,
+        farmerWilaya = prefill.wilaya,
+      )
+
+    val order =
+      MarketplaceOrder(
+        requesterId = currentUserId,
+        requesterName = _editorState.value.operatorDisplayName,
+        requesterRole = UserRole.FARMER.code,
+        providerId = "",
+        targetRole = UserRole.SERVICE_PROVIDER.code,
+        targetItemId = indicative?.catalogItemId.orEmpty(),
+        orderType = "service_quote",
+        itemTitle = localizedServiceTitle.trim().ifBlank { choice.categoryCode },
+        wilaya = prefill.wilaya,
+        commune = prefill.commune,
+        parcelId = prefill.parcelId,
+        serviceCategory = choice.categoryCode,
+        preferredDate = currentDraft.selectedDateIso,
+        centroidLat = prefill.centroidLat,
+        centroidLng = prefill.centroidLng,
+        quantity = if (choice.usesParcelAreaAsQuantity) prefill.areaHectares else 1.0,
+        unitLabel = localizedUnitLabel.trim().ifBlank { "يوم" },
+        proposedPriceDzd = indicative?.priceDzd ?: 0.0,
+        notes = listOf(prefill.parcelName, prefill.commune).filter { it.isNotBlank() }.joinToString(" • "),
+        status = "pending",
+      )
+
+    _isSubmittingServiceQuote.value = true
+    viewModelScope.launch {
+      repo
+        .createMarketplaceOrder(order)
+        .onSuccess { createdOrderId ->
+          _isSubmittingServiceQuote.value = false
+          val postSubmitState =
+            FarmerServiceDraft(
+              wizardStage = FarmerServiceWizardStage.STATUS_SCREEN,
+              lastSubmittedOrderId = createdOrderId,
+            )
+          serviceDraftStorage.saveDraft(postSubmitState)
+          _serviceDraftState.value = postSubmitState
+        }
+        .onFailure {
+          _isSubmittingServiceQuote.value = false
+          persistAndUpdateServiceDraft { draft ->
+            draft.copy(
+              wizardStage = FarmerServiceWizardStage.STEP_3_CONFIRM,
+              hasFailedSendToRetry = true,
+            )
+          }
+        }
+    }
+  }
+
   fun submitMarketplaceOrder(order: MarketplaceOrder) {
     val repo = roleRepository ?: return
     viewModelScope.launch {
@@ -2188,6 +2361,11 @@ class FellahViewModel(
             "fellah_custom_crops_${currentUserId.take(40)}",
             Context.MODE_PRIVATE,
           )
+        val serviceDraftPrefs =
+          app.getSharedPreferences(
+            "fellah_service_draft_${currentUserId.take(40)}",
+            Context.MODE_PRIVATE,
+          )
         FellahViewModel(
           repository = FellahRepository(db),
           currentUserId = currentUserId,
@@ -2196,8 +2374,101 @@ class FellahViewModel(
           roleRepository = RoleAccountRepository(db),
           localPlotRepository = localPlotRepo,
           customCropPrefs = customCropPrefs,
+          serviceDraftStorage = SharedPrefsFarmerServiceDraftStorage(serviceDraftPrefs),
         )
       }
     }
+
+    val defaultCuratedMarketListings: List<MarketListing> =
+      listOf(
+        MarketListing(
+          id = "seed_miel_sidr_1",
+          userId = "operator_miel_batna",
+          operatorName = "تعاونية نحالي الأوراس",
+          parcelReference = "منحل بلدي مرخص N-42",
+          cropType = "miel_naturel",
+          wilaya = "05 - باتنة (Batna)",
+          availableTons = 1.5,
+          pricePerKgDzd = 3800.0,
+          status = "active",
+        ),
+        MarketListing(
+          id = "seed_poisson_tilapia_1",
+          userId = "operator_aquaculture_ouargla",
+          operatorName = "مزرعة الواحات لتربية الأسماك",
+          parcelReference = "حوض استزراع مائي N-12",
+          cropType = "poisson_aquaculture",
+          wilaya = "30 - ورقلة (Ouargla)",
+          availableTons = 6.0,
+          pricePerKgDzd = 650.0,
+          status = "active",
+        ),
+        MarketListing(
+          id = "seed_elevage_ouled_djellal_1",
+          userId = "operator_elevage_djelfa",
+          operatorName = "مستثمرة أولاد جلال النموذجية",
+          parcelReference = "منشأة رعي وتربية N-88",
+          cropType = "elevage_ovin_bovin",
+          wilaya = "17 - الجلفة (Djelfa)",
+          availableTons = 14.0,
+          pricePerKgDzd = 1550.0,
+          status = "active",
+        ),
+        MarketListing(
+          id = "seed_deglet_nour_tolga_1",
+          userId = "operator_dates_biskra",
+          operatorName = "مجمع تمور الزيبان",
+          parcelReference = "واحة طولقة P-108",
+          cropType = "deglet_nour",
+          wilaya = "07 - بسكرة (Biskra)",
+          availableTons = 35.0,
+          pricePerKgDzd = 420.0,
+          status = "active",
+        ),
+        MarketListing(
+          id = "seed_miel_eucalyptus_2",
+          userId = "operator_miel_blida",
+          operatorName = "مناحل غابات الأطلس البليدي",
+          parcelReference = "منحل الشفة P-07",
+          cropType = "miel_naturel",
+          wilaya = "09 - البليدة (Blida)",
+          availableTons = 2.0,
+          pricePerKgDzd = 3200.0,
+          status = "active",
+        ),
+        MarketListing(
+          id = "seed_poisson_carpe_2",
+          userId = "operator_aquaculture_relizane",
+          operatorName = "محطة استزراع سد سيدي محمد",
+          parcelReference = "أحواض تجميع فلاحية N-03",
+          cropType = "poisson_aquaculture",
+          wilaya = "48 - غليزان (Relizane)",
+          availableTons = 4.5,
+          pricePerKgDzd = 580.0,
+          status = "active",
+        ),
+        MarketListing(
+          id = "seed_elevage_vaches_laitieres_2",
+          userId = "operator_elevage_setif",
+          operatorName = "تعاونية الألبان الهضاب العليا",
+          parcelReference = "حظيرة إنتاج وتربية N-55",
+          cropType = "elevage_ovin_bovin",
+          wilaya = "19 - سطيف (Sétif)",
+          availableTons = 18.0,
+          pricePerKgDzd = 1350.0,
+          status = "active",
+        ),
+        MarketListing(
+          id = "seed_pomme_de_terre_souf_1",
+          userId = "operator_potato_souf",
+          operatorName = "مزرعة الرمال الذهبية",
+          parcelReference = "محور رش دائري P-33",
+          cropType = "pomme_de_terre",
+          wilaya = "39 - الوادي (El Oued)",
+          availableTons = 45.0,
+          pricePerKgDzd = 75.0,
+          status = "active",
+        ),
+      )
   }
 }

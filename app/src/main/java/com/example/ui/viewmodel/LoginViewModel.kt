@@ -42,7 +42,15 @@ sealed interface LoginAuthStatus {
 
   data object Cancelled : LoginAuthStatus
 
-  data class Error(val message: String) : LoginAuthStatus
+  data class PhoneSavedReadyForGoogle(
+    val savedPhone: String,
+    val message: String,
+  ) : LoginAuthStatus
+
+  data class Error(
+    val message: String,
+    val suggestGoogleFallback: Boolean = false,
+  ) : LoginAuthStatus
 }
 
 data class LoginUiState(
@@ -71,13 +79,25 @@ data class LoginUiState(
 
 class LoginViewModel(
   private val phoneAuthGateway: PhoneAuthGateway = FirebasePhoneAuthGateway,
+  private val googleSignInRunner: suspend (Context?, CredentialManager?) -> GoogleSignInOutcome =
+    ::signInInteractivelyWithGoogle,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(LoginUiState())
   val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
   fun setLanguage(language: AppLanguage) {
-    _uiState.update { it.copy(language = language) }
+    _uiState.update { state ->
+      val updatedStatus =
+        when (val currentStatus = state.status) {
+          is LoginAuthStatus.PhoneSavedReadyForGoogle ->
+            currentStatus.copy(
+              message = buildPhoneSavedGmailGuidance(language, currentStatus.savedPhone)
+            )
+          else -> currentStatus
+        }
+      state.copy(language = language, status = updatedStatus)
+    }
   }
 
   fun selectAuthMethod(method: AuthEntryMethod) {
@@ -85,7 +105,11 @@ class LoginViewModel(
       state.copy(
         selectedAuthMethod = method,
         status =
-          if (state.status is LoginAuthStatus.Error || state.status is LoginAuthStatus.Cancelled) {
+          if (
+            state.status is LoginAuthStatus.Error ||
+              state.status is LoginAuthStatus.Cancelled ||
+              state.status is LoginAuthStatus.PhoneSavedReadyForGoogle
+          ) {
             LoginAuthStatus.Idle
           } else {
             state.status
@@ -99,7 +123,15 @@ class LoginViewModel(
     _uiState.update { state ->
       state.copy(
         phoneInput = sanitized,
-        status = if (state.status is LoginAuthStatus.Error) LoginAuthStatus.Idle else state.status,
+        status =
+          if (
+            state.status is LoginAuthStatus.Error ||
+              state.status is LoginAuthStatus.PhoneSavedReadyForGoogle
+          ) {
+            LoginAuthStatus.Idle
+          } else {
+            state.status
+          },
       )
     }
   }
@@ -127,7 +159,11 @@ class LoginViewModel(
 
   fun dismissMessage() {
     _uiState.update { state ->
-      if (state.status is LoginAuthStatus.Cancelled || state.status is LoginAuthStatus.Error) {
+      if (
+        state.status is LoginAuthStatus.Cancelled ||
+          state.status is LoginAuthStatus.Error ||
+          state.status is LoginAuthStatus.PhoneSavedReadyForGoogle
+      ) {
         state.copy(status = LoginAuthStatus.Idle)
       } else {
         state
@@ -135,9 +171,22 @@ class LoginViewModel(
     }
   }
 
+  /**
+   * Returns a normalized E.164 phone number if the user already typed a valid mobile number,
+   * allowing Google Sign-In fallback to pre-fill their phone in Onboarding without losing input.
+   */
+  fun currentNormalizedDraftPhone(): String? {
+    val current = _uiState.value
+    return current.normalizedPhone.takeIf { it.isNotBlank() }
+      ?: AccountInputValidator.normalizePhoneToE164(current.phoneInput)
+  }
+
   fun requestPhoneOtpCode(
-    context: Context,
+    context: Context?,
     isResend: Boolean = false,
+    credentialManager: CredentialManager? = null,
+    onPhoneDraftCaptured: (String) -> Unit = {},
+    onGoogleHandoffAuthSuccess: () -> Unit = {},
     onInstantAuthSuccess: (String) -> Unit = {},
   ) {
     val current = _uiState.value
@@ -189,6 +238,25 @@ class LoginViewModel(
           }
           onInstantAuthSuccess(outcome.normalizedPhone)
         }
+        is PhoneOtpSendOutcome.RequireGoogleIdentityHandoff -> {
+          // Save the farmer's normalized +213XXXXXXXXX phone number immediately without popping open
+          // Google's "Email or phone" webview unannounced (which previously caused users to type their
+          // phone number into Google's email prompt). Instead, present clear localized guidance with
+          // 1-tap Google/Gmail sign-in below.
+          onPhoneDraftCaptured(outcome.normalizedPhone)
+          val guidance = buildPhoneSavedGmailGuidance(_uiState.value.language, outcome.normalizedPhone)
+          _uiState.update {
+            it.copy(
+              normalizedPhone = outcome.normalizedPhone,
+              selectedAuthMethod = AuthEntryMethod.GOOGLE,
+              status =
+                LoginAuthStatus.PhoneSavedReadyForGoogle(
+                  savedPhone = outcome.normalizedPhone,
+                  message = guidance,
+                ),
+            )
+          }
+        }
         is PhoneOtpSendOutcome.Error -> {
           val localized =
             when (_uiState.value.language) {
@@ -196,7 +264,15 @@ class LoginViewModel(
               AppLanguage.FR -> outcome.messageFr
               AppLanguage.EN -> outcome.messageEn
             }
-          _uiState.update { it.copy(status = LoginAuthStatus.Error(localized)) }
+          _uiState.update {
+            it.copy(
+              status =
+                LoginAuthStatus.Error(
+                  message = localized,
+                  suggestGoogleFallback = outcome.suggestGoogleFallback,
+                )
+            )
+          }
         }
       }
     }
@@ -303,21 +379,56 @@ class LoginViewModel(
     if (_uiState.value.isBusy) return
     _uiState.update { it.copy(status = LoginAuthStatus.SigningIn) }
     viewModelScope.launch {
-      when (val outcome = signInInteractivelyWithGoogle(context, credentialManager)) {
-        GoogleSignInOutcome.Success -> {
-          _uiState.update { it.copy(status = LoginAuthStatus.Idle) }
-          onAuthSuccess()
-        }
-        GoogleSignInOutcome.Cancelled -> {
+      handleGoogleSignInOutcome(
+        outcome = googleSignInRunner(context, credentialManager),
+        onAuthSuccess = onAuthSuccess,
+      )
+    }
+  }
+
+  private fun handleGoogleSignInOutcome(
+    outcome: GoogleSignInOutcome,
+    onAuthSuccess: () -> Unit,
+  ) {
+    when (outcome) {
+      GoogleSignInOutcome.Success -> {
+        _uiState.update { it.copy(status = LoginAuthStatus.Idle) }
+        onAuthSuccess()
+      }
+      GoogleSignInOutcome.Cancelled -> {
+        val draftPhone = currentNormalizedDraftPhone()
+        if (draftPhone != null) {
+          val guidance = buildPhoneSavedGmailGuidance(_uiState.value.language, draftPhone)
+          _uiState.update {
+            it.copy(
+              selectedAuthMethod = AuthEntryMethod.GOOGLE,
+              status =
+                LoginAuthStatus.PhoneSavedReadyForGoogle(
+                  savedPhone = draftPhone,
+                  message = guidance,
+                ),
+            )
+          }
+        } else {
           _uiState.update { it.copy(status = LoginAuthStatus.Cancelled) }
         }
-        GoogleSignInOutcome.NoSavedCredential -> {
-          _uiState.update { it.copy(status = LoginAuthStatus.Idle) }
-        }
-        is GoogleSignInOutcome.Error -> {
-          _uiState.update { it.copy(status = LoginAuthStatus.Error(outcome.message)) }
-        }
+      }
+      GoogleSignInOutcome.NoSavedCredential -> {
+        _uiState.update { it.copy(status = LoginAuthStatus.Idle) }
+      }
+      is GoogleSignInOutcome.Error -> {
+        _uiState.update { it.copy(status = LoginAuthStatus.Error(outcome.message)) }
       }
     }
   }
+
+  private fun buildPhoneSavedGmailGuidance(language: AppLanguage, savedPhone: String): String =
+    when (language) {
+      AppLanguage.AR ->
+        "تم حفظ رقم هاتفك ($savedPhone) بنجاح في التطبيق ✓. إرسال رسائل SMS المباشرة غير مفعّل حالياً في مشروع Firebase (لتفعيله: افتح Firebase Console > Authentication > Sign-in method > Phone أو أضف رقم اختبار). للدخول الفوري الآن، اضغط زر Google بالأسفل واكتب بريدك (example@gmail.com) ولا تكتب رقم الهاتف داخل نافذة Google."
+      AppLanguage.FR ->
+        "Votre numéro ($savedPhone) est enregistré ✓. L’envoi SMS n’est pas encore activé dans Firebase Console (Authentication > Sign-in method > Phone). Pour continuer immédiatement, appuyez sur le bouton Google ci-dessous avec votre adresse Gmail (exemple@gmail.com) — sans saisir votre numéro dans Google."
+      AppLanguage.EN ->
+        "Your phone number ($savedPhone) is saved ✓. Direct SMS is not yet enabled in Firebase Console (Authentication > Sign-in method > Phone). To sign in immediately, tap the Google button below and enter your Gmail address (example@gmail.com) — do NOT enter your phone number inside Google."
+    }
 }

@@ -81,6 +81,7 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
   var pendingDestinationSection by rememberSaveable { mutableStateOf<WorkspaceSection?>(null) }
   var pendingSuggestedRole by rememberSaveable { mutableStateOf<UserRole?>(null) }
   var verifiedPhoneFromLogin by rememberSaveable { mutableStateOf("") }
+  var prefilledPhoneFromLogin by rememberSaveable { mutableStateOf("") }
 
   val user = currentUser
   if (user == null) {
@@ -99,7 +100,11 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
       LoginScreen(
         initialLanguage = preferredLanguage,
         onLanguageChanged = { lang -> preferredLanguage = lang },
-        onPhoneVerified = { verifiedPhone -> verifiedPhoneFromLogin = verifiedPhone },
+        onPhoneVerified = { verifiedPhone ->
+          verifiedPhoneFromLogin = verifiedPhone
+          prefilledPhoneFromLogin = verifiedPhone
+        },
+        onPhoneDraftCaptured = { draftPhone -> prefilledPhoneFromLogin = draftPhone },
         onEnterVisitorMode = { isVisitorMode = true },
       )
     }
@@ -129,7 +134,8 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
           val resolvedPhone =
             user.phoneNumber?.takeIf { it.isNotBlank() }
               ?: account?.phoneNumber?.takeIf { it.isNotBlank() }
-              ?: verifiedPhoneFromLogin
+              ?: verifiedPhoneFromLogin.takeIf { it.isNotBlank() }
+              ?: prefilledPhoneFromLogin
           val isPhoneVerified =
             !user.phoneNumber.isNullOrBlank() ||
               verifiedPhoneFromLogin.isNotBlank() ||
@@ -250,6 +256,7 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
             },
             onSignOut = {
               verifiedPhoneFromLogin = ""
+              prefilledPhoneFromLogin = ""
               signOutUser(
                 credentialManager = credentialManager,
                 onSignOutComplete = {},
@@ -271,6 +278,7 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
             currentUser = user,
             onSignOut = {
               verifiedPhoneFromLogin = ""
+              prefilledPhoneFromLogin = ""
               signOutUser(
                 credentialManager = credentialManager,
                 onSignOutComplete = {},
@@ -287,6 +295,7 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
           currentUser = user,
           onSignOut = {
             verifiedPhoneFromLogin = ""
+            prefilledPhoneFromLogin = ""
             signOutUser(
               credentialManager = credentialManager,
               onSignOutComplete = {},

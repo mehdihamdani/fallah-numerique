@@ -1,10 +1,19 @@
 package com.example.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Favorite
@@ -34,6 +44,8 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PersonAddAlt1
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
@@ -57,20 +69,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import java.io.ByteArrayOutputStream
 import com.example.data.model.AgriculturalParcel
 import com.example.data.model.AppLanguage
 import com.example.data.model.CropVarietyType
 import com.example.data.model.FavoriteTargetType
+import com.example.data.model.MarketClassification
 import com.example.data.model.MarketListing
 import com.example.data.model.MarketplaceOrder
 import com.example.data.model.PartnerCatalogItem
@@ -350,6 +368,202 @@ private data class PendingRatingTarget(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
+fun MarketClassificationFilterSection(
+  selectedClassification: MarketClassification,
+  onSelectClassification: (MarketClassification) -> Unit,
+  selectedCropFilter: String?,
+  onSelectCropFilter: (String?) -> Unit,
+  listings: List<MarketListing>,
+  language: AppLanguage,
+  modifier: Modifier = Modifier,
+) {
+  val countMap =
+    remember(listings) {
+      mapOf(
+        MarketClassification.ALL to listings.size,
+        MarketClassification.HONEY to
+          listings.count { MarketClassification.classify(it.cropType) == MarketClassification.HONEY },
+        MarketClassification.FISH to
+          listings.count { MarketClassification.classify(it.cropType) == MarketClassification.FISH },
+        MarketClassification.LIVESTOCK to
+          listings.count {
+            MarketClassification.classify(it.cropType) == MarketClassification.LIVESTOCK
+          },
+        MarketClassification.CROPS to
+          listings.count { MarketClassification.classify(it.cropType) == MarketClassification.CROPS },
+      )
+    }
+
+  Column(
+    modifier = modifier.fillMaxWidth(),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text =
+          RoleStrings.tr(
+            language,
+            ar = "شعب الإنتاج الفلاحي والحيواني:",
+            fr = "Filières & Catégories :",
+            en = "Production Sectors:",
+          ),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+      )
+      if (selectedClassification != MarketClassification.ALL) {
+        TextButton(
+          onClick = {
+            onSelectClassification(MarketClassification.ALL)
+            onSelectCropFilter(null)
+          }
+        ) {
+          Text("إعادة تعيين (الكل)", style = MaterialTheme.typography.labelMedium)
+        }
+      }
+    }
+
+    // Large visual category cards
+    Row(
+      modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      MarketClassification.entries.forEach { classification ->
+        val isSelected = selectedClassification == classification
+        val count = countMap[classification] ?: 0
+        val catColor = Color(classification.themeColorHex)
+
+        Surface(
+          shape = RoundedCornerShape(16.dp),
+          color =
+            if (isSelected) {
+              catColor.copy(alpha = 0.14f)
+            } else {
+              MaterialTheme.colorScheme.surfaceContainerLow
+            },
+          border =
+            BorderStroke(
+              width = if (isSelected) 2.dp else 1.dp,
+              color =
+                if (isSelected) catColor
+                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            ),
+          modifier =
+            Modifier.clickable {
+                onSelectClassification(classification)
+                onSelectCropFilter(null)
+              }
+              .testTag("market_cat_${classification.code}"),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            Surface(
+              shape = RoundedCornerShape(12.dp),
+              color = catColor.copy(alpha = 0.18f),
+              modifier = Modifier.size(44.dp),
+            ) {
+              Box(contentAlignment = Alignment.Center) {
+                Text(text = classification.iconEmoji, style = MaterialTheme.typography.titleLarge)
+              }
+            }
+            Column {
+              Text(
+                text = classification.localizedTitle(language),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                color = if (isSelected) catColor else MaterialTheme.colorScheme.onSurface,
+              )
+              Surface(
+                shape = RoundedCornerShape(6.dp),
+                color =
+                  if (isSelected) catColor.copy(alpha = 0.22f)
+                  else MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.padding(top = 2.dp),
+              ) {
+                Text(
+                  text = if (count == 1) "عرض 1 متاح" else "$count عروض متاحة",
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = if (isSelected) catColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Sub-chips according to selected classification
+    val subPresets =
+      remember(selectedClassification) {
+        when (selectedClassification) {
+          MarketClassification.HONEY ->
+            listOf(
+              "عسل سدرة جبلي" to "miel_naturel",
+              "عسل الكاليتوس" to "عسل الكاليتوس",
+              "حبوب الطلع والغذاء الملكي" to "حبوب الطلع",
+              "خلايا وطرود نحل" to "خلايا نحل",
+            )
+          MarketClassification.FISH ->
+            listOf(
+              "سمك البلطي النيلي (Tilapia)" to "poisson_aquaculture",
+              "سمك الشبوط والكارب" to "سمك الشبوط",
+              "زريعة أسماك الأحواض" to "زريعة أسماك",
+            )
+          MarketClassification.LIVESTOCK ->
+            listOf(
+              "خراف أولاد جلال للتسمين" to "elevage_ovin_bovin",
+              "أبقار حلوب وعجول" to "أبقار حلوب",
+              "ماعز محلي" to "ماعز",
+            )
+          MarketClassification.CROPS ->
+            listOf(
+              "تمور دقلة نور" to "deglet_nour",
+              "بطاطا موسمية" to "pomme_de_terre",
+              "أشجار الزيتون" to "olivier",
+              "طماطم صناعية" to "tomate_industrielle",
+            )
+          MarketClassification.ALL -> emptyList()
+        }
+      }
+
+    if (subPresets.isNotEmpty()) {
+      FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        FilterChip(
+          selected = selectedCropFilter == null,
+          onClick = { onSelectCropFilter(null) },
+          label = { Text("الكل في هذا القسم") },
+          modifier = Modifier.testTag("sub_crop_all"),
+        )
+        subPresets.forEach { (label, code) ->
+          val isSubSelected =
+            selectedCropFilter.equals(code, ignoreCase = true) ||
+              selectedCropFilter.equals(label, ignoreCase = true)
+          FilterChip(
+            selected = isSubSelected,
+            onClick = { onSelectCropFilter(if (isSubSelected) null else code) },
+            label = { Text(label) },
+            modifier = Modifier.testTag("sub_crop_${code.take(15)}"),
+          )
+        }
+      }
+    }
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 fun PublicMarketScreen(
   listingsState: UiState<List<MarketListing>>,
   currentUserId: String,
@@ -386,6 +600,7 @@ fun PublicMarketScreen(
 ) {
   BackHandler(onBack = onBackToDelineation)
 
+  var selectedClassification by remember { mutableStateOf(MarketClassification.ALL) }
   var selectedCropFilter by remember { mutableStateOf<String?>(null) }
   var marketSubTab by remember { mutableStateOf(0) } // 0 = Harvests, 1 = Partner Catalog, 2 = Favorites
   var favoriteFilterType by remember { mutableStateOf<FavoriteTargetType?>(null) }
@@ -897,43 +1112,17 @@ fun PublicMarketScreen(
       }
     } else {
       // marketSubTab == 0: Harvest Listings
-      val activeCustomCrops =
-        (listingsState as? UiState.Success)
-          ?.data
-          ?.map { it.cropType.trim() }
-          ?.filter { CropVarietyType.isCustomCrop(it) }
-          ?.distinct()
-          .orEmpty()
+      val allListings = (listingsState as? UiState.Success)?.data.orEmpty()
 
-      FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-      ) {
-        FilterChip(
-          selected = selectedCropFilter == null,
-          onClick = { selectedCropFilter = null },
-          label = { Text("الكل (Tous)") },
-        )
-        CropVarietyType.entries.forEach { crop ->
-          FilterChip(
-            selected = selectedCropFilter == crop.code,
-            onClick = {
-              selectedCropFilter = if (selectedCropFilter == crop.code) null else crop.code
-            },
-            label = { Text(crop.titleAr) },
-          )
-        }
-        activeCustomCrops.forEach { customCrop ->
-          FilterChip(
-            selected = selectedCropFilter.equals(customCrop, ignoreCase = true),
-            onClick = {
-              selectedCropFilter =
-                if (selectedCropFilter.equals(customCrop, ignoreCase = true)) null else customCrop
-            },
-            label = { Text(customCrop) },
-          )
-        }
-      }
+      // Large visual category filter section
+      MarketClassificationFilterSection(
+        selectedClassification = selectedClassification,
+        onSelectClassification = { selectedClassification = it },
+        selectedCropFilter = selectedCropFilter,
+        onSelectCropFilter = { selectedCropFilter = it },
+        listings = allListings,
+        language = language,
+      )
 
       when (listingsState) {
         is UiState.Loading -> {
@@ -960,14 +1149,23 @@ fun PublicMarketScreen(
         is UiState.Success -> {
           val filtered =
             listingsState.data.filter { l ->
+              val itemCat = MarketClassification.classify(l.cropType)
+              val matchesCat =
+                (selectedClassification == MarketClassification.ALL || itemCat == selectedClassification)
+              val matchesSub =
+                (selectedCropFilter == null ||
+                  l.cropType.trim().equals(selectedCropFilter, ignoreCase = true) ||
+                  CropVarietyType.resolveDisplayTitleAr(l.cropType).contains(selectedCropFilter.orEmpty(), ignoreCase = true))
               val resolvedCropLabel = CropVarietyType.resolveDisplayTitleAr(l.cropType)
-              (selectedCropFilter == null || l.cropType.trim().equals(selectedCropFilter, ignoreCase = true)) &&
+              val matchesSearch =
                 (searchQuery.isBlank() ||
                   l.operatorName.contains(searchQuery, ignoreCase = true) ||
                   l.wilaya.contains(searchQuery, ignoreCase = true) ||
                   l.parcelReference.contains(searchQuery, ignoreCase = true) ||
                   l.cropType.contains(searchQuery, ignoreCase = true) ||
                   resolvedCropLabel.contains(searchQuery, ignoreCase = true))
+
+              matchesCat && matchesSub && matchesSearch
             }
 
           if (filtered.isEmpty()) {
@@ -977,37 +1175,62 @@ fun PublicMarketScreen(
                 CardDefaults.cardColors(
                   containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
                 ),
-              modifier = Modifier.fillMaxWidth(),
+              modifier = Modifier.fillMaxWidth().testTag("market_empty_state_card"),
             ) {
               Column(
                 modifier = Modifier.fillMaxWidth().padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
               ) {
-                Icon(
-                  imageVector = Icons.Filled.Storefront,
-                  contentDescription = null,
-                  tint = MaterialTheme.colorScheme.primary,
-                  modifier = Modifier.size(48.dp),
+                Text(
+                  text = selectedClassification.iconEmoji,
+                  style = MaterialTheme.typography.displayMedium,
                 )
                 Text(
-                  text = "لا توجد إعلانات بيع نشطة مطابقة حالياً",
+                  text =
+                    if (selectedClassification == MarketClassification.ALL) {
+                      "لا توجد إعلانات بيع نشطة مطابقة حالياً"
+                    } else {
+                      "لا توجد عروض حالياً في قسم (${selectedClassification.titleAr})"
+                    },
                   style = MaterialTheme.typography.titleLarge,
+                  textAlign = TextAlign.Center,
                 )
                 Text(
-                  text = "اربط قطعتك الفلاحية بإعلان بيع رسمي لعرض الكمية المتوقعة وسعر الكيلوغرام للمشترين والتعاونيات.",
+                  text =
+                    if (selectedClassification == MarketClassification.ALL) {
+                      "اربط قطعتك الفلاحية بإعلان بيع رسمي لعرض الكمية المتوقعة وسعر الكيلوغرام للمشترين والتعاونيات."
+                    } else {
+                      "كن أول من يعرض منتجات ${selectedClassification.titleAr} في السوق الفلاحي والتقط صورة مباشرة لسلعتك بالكاميرا."
+                    },
                   style = MaterialTheme.typography.bodyMedium,
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                   textAlign = TextAlign.Center,
                 )
-                Button(onClick = onOpenPublishModal, modifier = Modifier.height(48.dp)) {
-                  Text("ربط القطعة الحالية بإعلان بيع")
+                Row(
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  if (selectedClassification != MarketClassification.ALL) {
+                    OutlinedButton(
+                      onClick = {
+                        selectedClassification = MarketClassification.ALL
+                        selectedCropFilter = null
+                      }
+                    ) {
+                      Text("عرض كل الأقسام")
+                    }
+                  }
+                  Button(onClick = onOpenPublishModal, modifier = Modifier.height(48.dp)) {
+                    Text("عرض سلعة جديدة (كاميرا)")
+                  }
                 }
               }
             }
           } else {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
               filtered.forEach { listing ->
+                val classification = MarketClassification.classify(listing.cropType)
                 val cropTitleAr = CropVarietyType.resolveDisplayTitleAr(listing.cropType)
                 val isMine = listing.userId == currentUserId
                 val farmerReputation =
@@ -1042,6 +1265,86 @@ fun PublicMarketScreen(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                   ) {
+                    if (listing.photoBase64.isNotBlank()) {
+                      val listingBitmap =
+                        remember(listing.photoBase64) {
+                          try {
+                            val rawBase64 =
+                              if (listing.photoBase64.contains(",")) {
+                                listing.photoBase64.substringAfter(",")
+                              } else {
+                                listing.photoBase64
+                              }
+                            val bytes = Base64.decode(rawBase64, Base64.DEFAULT)
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                          } catch (_: Exception) {
+                            null
+                          }
+                        }
+                      if (listingBitmap != null) {
+                        Image(
+                          bitmap = listingBitmap,
+                          contentDescription = "صورة سلعة $cropTitleAr",
+                          contentScale = ContentScale.Crop,
+                          modifier =
+                            Modifier.fillMaxWidth()
+                              .height(180.dp)
+                              .clip(RoundedCornerShape(12.dp))
+                              .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                RoundedCornerShape(12.dp),
+                              ),
+                        )
+                      }
+                    } else {
+                      // Aesthetic Themed Banner for listings without photo
+                      Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(classification.themeColorHex).copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, Color(classification.themeColorHex).copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth().height(105.dp),
+                      ) {
+                        Row(
+                          modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                          Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                          ) {
+                            Surface(
+                              shape = RoundedCornerShape(6.dp),
+                              color = Color(classification.themeColorHex).copy(alpha = 0.18f),
+                            ) {
+                              Text(
+                                text = "${classification.iconEmoji} ${classification.localizedTitle(language)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(classification.themeColorHex),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                              )
+                            }
+                            Text(
+                              text = cropTitleAr,
+                              style = MaterialTheme.typography.titleMedium,
+                              fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                              text = "${listing.wilaya} • إنتاج محلي موثوق",
+                              style = MaterialTheme.typography.bodySmall,
+                              color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                          }
+                          Text(
+                            text = classification.iconEmoji,
+                            style = MaterialTheme.typography.displayMedium,
+                          )
+                        }
+                      }
+                    }
+
                     Row(
                       modifier = Modifier.fillMaxWidth(),
                       horizontalArrangement = Arrangement.SpaceBetween,
@@ -1058,13 +1361,25 @@ fun PublicMarketScreen(
                           tint = MaterialTheme.colorScheme.primary,
                           modifier = Modifier.size(22.dp),
                         )
-                        Column {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                          Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(classification.themeColorHex).copy(alpha = 0.12f),
+                          ) {
+                            Text(
+                              text = "${classification.iconEmoji} ${classification.localizedTitle(language)}",
+                              style = MaterialTheme.typography.labelSmall,
+                              fontWeight = FontWeight.Bold,
+                              color = Color(classification.themeColorHex),
+                              modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                          }
                           Text(
                             text = "$cropTitleAr • ${listing.operatorName}",
                             style = MaterialTheme.typography.titleLarge,
                           )
                           Text(
-                            text = "${listing.wilaya} • مرجع القطعة: ${listing.parcelReference}",
+                            text = "${listing.wilaya} • مرجع: ${listing.parcelReference}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                           )
@@ -1481,13 +1796,15 @@ fun CadastralEditDialog(
   )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PublishMarketDialog(
   parcel: AgriculturalParcel,
   defaultOperatorName: String,
   onDismiss: () -> Unit,
-  onConfirmPublish: (String, Double, Double, String) -> Unit,
+  onConfirmPublish: (String, Double, Double, String, String) -> Unit,
 ) {
+  val context = LocalContext.current
   val initialCropText =
     remember(parcel.id, parcel.mainCrop) {
       if (parcel.mainCrop.isBlank()) {
@@ -1512,6 +1829,61 @@ fun PublishMarketDialog(
   var priceInput by
     remember(defaultPriceKg) { mutableStateOf(String.format(Locale.US, "%.0f", defaultPriceKg)) }
 
+  var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+  var photoBase64 by remember { mutableStateOf("") }
+
+  fun processCapturedBitmap(bitmap: Bitmap) {
+    val maxDim = 800
+    val scaled =
+      if (bitmap.width > maxDim || bitmap.height > maxDim) {
+        val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
+        if (ratio > 1f) {
+          Bitmap.createScaledBitmap(bitmap, maxDim, (maxDim / ratio).toInt().coerceAtLeast(1), true)
+        } else {
+          Bitmap.createScaledBitmap(bitmap, (maxDim * ratio).toInt().coerceAtLeast(1), maxDim, true)
+        }
+      } else {
+        bitmap
+      }
+    val baos = ByteArrayOutputStream()
+    scaled.compress(Bitmap.CompressFormat.JPEG, 75, baos)
+    val bytes = baos.toByteArray()
+    photoBase64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+    capturedBitmap = scaled
+  }
+
+  val cameraLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+      if (bitmap != null) {
+        processCapturedBitmap(bitmap)
+      }
+    }
+
+  val photoPickerLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+      if (uri != null) {
+        try {
+          context.contentResolver.openInputStream(uri)?.use { stream ->
+            val bmp = BitmapFactory.decodeStream(stream)
+            if (bmp != null) {
+              processCapturedBitmap(bmp)
+            }
+          }
+        } catch (_: Exception) {}
+      }
+    }
+
+  val featuredPresets =
+    listOf(
+      CropVarietyType.MIEL_NATUREL,
+      CropVarietyType.POISSON_AQUACULTURE,
+      CropVarietyType.ELEVAGE_OVIN_BOVIN,
+      CropVarietyType.DEGLET_NOUR,
+      CropVarietyType.POMME_DE_TERRE,
+      CropVarietyType.OLIVIER,
+      CropVarietyType.TOMATE_INDUSTRIELLE,
+    )
+
   AlertDialog(
     onDismissRequest = onDismiss,
     title = { Text("ربط القطعة بإعلان بيع في السوق العام") },
@@ -1523,18 +1895,42 @@ fun PublishMarketDialog(
         Text(
           text =
             if (cropNameInput.trim().isEmpty()) {
-              "اكتب اسم منتوجك الفلاحي الخاص بحرية ليتم توثيق العرض بمرجع القطعة (${parcel.ilotNumber})."
+              "اختر شعبتك أو اكتب اسم منتوجك (عسل، أسماك، مواشي، حبوب...) لتوثيق العرض بمرجع القطعة (${parcel.ilotNumber})."
             } else {
               "سيتم توثيق العرض تلقائياً بمرجع القطعة (${parcel.ilotNumber}) ومنتوج (${cropNameInput.trim()})."
             },
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        Text(
+          text = "شعب ونماذج معتمدة:",
+          style = MaterialTheme.typography.labelSmall,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.primary,
+        )
+
+        FlowRow(
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          featuredPresets.forEach { preset ->
+            FilterChip(
+              selected = cropNameInput == preset.titleAr,
+              onClick = {
+                cropNameInput = preset.titleAr
+                priceInput = String.format(Locale.US, "%.0f", preset.defaultPriceKgDzd)
+              },
+              label = { Text(preset.titleAr, style = MaterialTheme.typography.labelSmall) },
+            )
+          }
+        }
+
         OutlinedTextField(
           value = cropNameInput,
           onValueChange = { cropNameInput = it.take(80) },
           label = { Text("اسم المنتوج / المحصول المعروض للبيع") },
-          placeholder = { Text("مثال: قمح صلب، بطيخ أحمر، ثوم، دقلة نور...") },
+          placeholder = { Text("مثال: عسل سدرة جبلي، سمك البلطي، خراف تسمين...") },
           singleLine = true,
           modifier = Modifier.fillMaxWidth().testTag("publish_market_crop_input"),
         )
@@ -1548,7 +1944,7 @@ fun PublishMarketDialog(
         OutlinedTextField(
           value = tonsInput,
           onValueChange = { tonsInput = it },
-          label = { Text("الكمية المعروضة للبيع (طن)") },
+          label = { Text("الكمية المعروضة للبيع (طن أو قنطار/10)") },
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
           singleLine = true,
           modifier = Modifier.fillMaxWidth(),
@@ -1561,6 +1957,113 @@ fun PublishMarketDialog(
           singleLine = true,
           modifier = Modifier.fillMaxWidth(),
         )
+
+        Spacer(Modifier.height(4.dp))
+
+        Text(
+          text = "صورة السلعة المباشرة (توثيق موثوق للمشتري):",
+          style = MaterialTheme.typography.labelMedium,
+          fontWeight = FontWeight.SemiBold,
+        )
+
+        if (capturedBitmap != null) {
+          Card(
+            shape = RoundedCornerShape(12.dp),
+            colors =
+              CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+              ),
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Column(
+              modifier = Modifier.fillMaxWidth().padding(8.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Box(modifier = Modifier.fillMaxWidth()) {
+                Image(
+                  bitmap = capturedBitmap!!.asImageBitmap(),
+                  contentDescription = "صورة السلعة المعروضة",
+                  contentScale = ContentScale.Crop,
+                  modifier =
+                    Modifier.fillMaxWidth()
+                      .height(160.dp)
+                      .clip(RoundedCornerShape(8.dp)),
+                )
+                IconButton(
+                  onClick = {
+                    capturedBitmap = null
+                    photoBase64 = ""
+                  },
+                  modifier =
+                    Modifier.align(Alignment.TopEnd)
+                      .padding(4.dp)
+                      .background(
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        RoundedCornerShape(20.dp),
+                      )
+                      .size(36.dp),
+                ) {
+                  Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "إزالة الصورة",
+                    tint = MaterialTheme.colorScheme.error,
+                  )
+                }
+              }
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                  Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                  )
+                  Text(
+                    "تم إرفاق صورة السلعة للتوثيق",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                  )
+                }
+                TextButton(onClick = { cameraLauncher.launch(null) }) {
+                  Text("إعادة الالتقاط")
+                }
+              }
+            }
+          }
+        } else {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Button(
+              onClick = { cameraLauncher.launch(null) },
+              modifier = Modifier.weight(1f).height(48.dp),
+            ) {
+              Icon(Icons.Filled.PhotoCamera, contentDescription = null)
+              Spacer(Modifier.width(6.dp))
+              Text("التقاط صورة")
+            }
+            OutlinedButton(
+              onClick = {
+                photoPickerLauncher.launch(
+                  PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+              },
+              modifier = Modifier.weight(1f).height(48.dp),
+            ) {
+              Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
+              Spacer(Modifier.width(6.dp))
+              Text("من المعرض")
+            }
+          }
+        }
       }
     },
     confirmButton = {
@@ -1576,7 +2079,7 @@ fun PublishMarketDialog(
           val resolvedCropToSave = matchedPresetCode ?: trimmedCrop
           val tons = tonsInput.replace(",", ".").toDoubleOrNull() ?: 10.0
           val price = priceInput.replace(",", ".").toDoubleOrNull() ?: defaultPriceKg
-          onConfirmPublish(operatorName, tons, price, resolvedCropToSave)
+          onConfirmPublish(operatorName, tons, price, resolvedCropToSave, photoBase64)
         },
         enabled = cropNameInput.trim().isNotEmpty(),
         modifier = Modifier.testTag("confirm_market_publish_button"),

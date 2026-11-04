@@ -1,0 +1,98 @@
+<resources>
+    <!-- Farmer Low-Literacy Home & 3-Step Service Request Flow (Arabic Primary) -->
+    <string name="farmer_home_welcome">فضاء الفلاح — اختر ما تريد القيام به</string>
+    <string name="farmer_home_action_my_land">أرضي</string>
+    <string name="farmer_home_action_my_land_sub">حدود الأرض والتربة والمحصول</string>
+    <string name="farmer_home_action_sell_crop">بيع محصولي</string>
+    <string name="farmer_home_action_sell_crop_sub">اعرض منتوجك للبيع للتجار مباشرة</string>
+    <string name="farmer_home_action_request_service">اطلب خدمة</string>
+    <string name="farmer_home_action_request_service_sub">عمال، آلات، نقل، أو تحليل التربة</string>
+
+    <string name="farmer_srv_title">اطلب خدمة</string>
+    <string name="farmer_srv_subtitle">اختر ما تحتاجه لأرضك في 3 خطوات بسيطة</string>
+    <string name="farmer_srv_btn_back">رجوع</string>
+    <string name="farmer_srv_btn_home">العودة للرئيسية</string>
+    <string name="farmer_srv_my_requests_btn">متابعة طلباتي (%1$d)</string>
+    <string name="farmer_srv_new_request_btn">طلب خدمة جديدة</string>
+
+    <string name="farmer_srv_call_engineer">اتصل بمهندسي</string>
+    <string name="farmer_srv_call_engineer_sub">استشارة مهندس فلاحي أو طلب زيارة ميدانية</string>
+
+    <string name="farmer_tile_workers">العمال</string>
+    <string name="farmer_tile_workers_sub">يد عاملة وجني المحصول</string>
+    <string name="farmer_tile_machinery">الآلات والعتاد</string>
+    <string name="farmer_tile_machinery_sub">حرث، جرار، وآلة حصاد</string>
+    <string name="farmer_tile_transport">النقل</string>
+    <string name="farmer_tile_transport_sub">شاحنات نقل المحصول</string>
+    <string name="farmer_tile_analysis_scan">التحليل والمسح</string>
+    <string name="farmer_tile_analysis_scan_sub">تحليل التربة ومسح بالدرون</string>
+    <string name="farmer_tile_other">أخرى</string>
+    <string name="farmer_tile_other_sub">سقي، تبريد، وحفر آبار</string>
+
+    <string name="farmer_step_progress">الخطوة %1$d من 3</string>
+    <string name="farmer_step1_choose_service">اختر الخدمة المطلوبة</string>
+    <string name="farmer_step2_choose_date">اختر الموعد المناسب</string>
+    <string name="farmer_step3_confirm_title">تأكيد ملخص الطلب</string>
+
+    <string name="srv_cat_farm_labor_supply">عمال لخدمة الأرض</string>
+    <string name="srv_cat_harvesting_picking">عمال الجني والحصاد</string>
+    <string name="srv_cat_plowing_leveling">حرث وتسوية الأرض</string>
+    <string name="srv_cat_tractor_machinery_rental">كراء جرار فلاحي</string>
+    <string name="srv_cat_harvester_rental">كراء آلة الحصاد</string>
+    <string name="srv_cat_agricultural_transport_service">شاحنة لنقل المحصول</string>
+    <string name="srv_cat_soil_lab_inraa">تحليل التربة في المخبر</string>
+    <string name="srv_cat_drone_ndvi_scan">مسح الأرض بالدرون</string>
+    <string name="srv_cat_irrigation_install_maint">تركيب وإصلاح السقي</string>
+    <string name="srv_cat_cold_storage_warehouses">غرفة تبريد وتخزين</string>
+    <string name="srv_cat_forage_drilling">حفر وصيانة بئر السقي</string>
+    <string name="srv_cat_agronomic_advisory">متابعة وإرشاد فلاحي</string>
+    <string name="srv_cat_agronomist_consultation">اتصال أو زيارة مهندسي الفلاحي</string>
+
+    <string name="srv_unit_day">يوم</string>
+    <string name="srv_unit_hectare">هكتار</string>
+    <string name="srv_unit_trip">نقلة</string>
+    <string name="srv_unit_service">خدمة</string>
+
+    <string name="farmer_slot_tomorrow">غداً (%1$s)</string>
+    <string name="farmer_slot_in_three_days">بعد 3 أيام (%1$s)</string>
+    <string name="farmer_slot_end_of_week">بعد 6 أيام (%1$s)</string>
+    <string name="farmer_slot_other_date">موعد آخر</string>
+    <string name="farmer_slot_other_date_selected">موعد آخر: %1$s</string>
+    <string name="farmer_slot_other_dialog_title">اختر يوماً آخر</string>
+    <string name="farmer_slot_other_confirm">اعتماد الموعد</string>
+    <string name="farmer_slot_other_cancel">إلغاء</string>
+
+    <string name="farmer_summary_service_label">الخدمة المختارة</string>
+    <string name="farmer_summary_date_label">الموعد المطلوب</string>
+    <string name="farmer_summary_land_label">الأرض الفلاحية</string>
+    <string name="farmer_summary_location_label">الولاية والبلدية</string>
+    <string name="farmer_summary_gps_ready">موقع مركز الأرض مرفق تلقائياً لمقدم الخدمة</string>
+    <string name="farmer_summary_indicative_price_label">السعر المرجعي الاسترشادي</string>
+    <string name="farmer_summary_indicative_price_value">%1$s د.ج (%2$s) — سعر استرشادي تقريبي</string>
+    <string name="farmer_summary_indicative_price_none">سعر استرشادي يحدده مقدم الخدمة في منطقتك</string>
+    <string name="farmer_btn_send_request">إرسال الطلب</string>
+    <string name="farmer_btn_sending">جارٍ إرسال الطلب...</string>
+
+    <string name="farmer_no_parcel_title">سيتم تسجيل أرضك خلال زيارة ميدانية</string>
+    <string name="farmer_no_parcel_explanation">لا يمكن إرسال طلب الخدمة حالياً لعدم وجود أرض مسجلة في حسابك. يرجى تسجيل أرضك أولاً من خانة "أرضي" أو انتظار الزيارة الميدانية لتحديد موقعها لمقدمي الخدمة في ولايتك.</string>
+    <string name="farmer_no_parcel_go_my_land">افتح أرضي لتسجيلها</string>
+
+    <string name="farmer_draft_saved_badge">طلبك محفوظ على الهاتف حتى عند ضعف الإنترنت</string>
+    <string name="farmer_send_retry_title">الإنترنت ضعيفة — لم يضع طلبك، اضغط لإعادة الإرسال</string>
+    <string name="farmer_btn_retry_send">إعادة إرسال الطلب</string>
+
+    <string name="farmer_status_screen_heading">حالة طلب الخدمة</string>
+    <string name="farmer_status_waiting_provider">في انتظار مقدم الخدمة</string>
+    <string name="farmer_status_waiting_provider_desc">أُرسل طلبك إلى مقدمي الخدمة المسجلين في ولايتك وبلديتك.</string>
+    <string name="farmer_status_provider_accepted">قبل مقدم الخدمة الطلب</string>
+    <string name="farmer_status_provider_accepted_desc">تكفل مقدم خدمة بطلبك للموعد المحدد.</string>
+    <string name="farmer_status_done">تمت الخدمة</string>
+    <string name="farmer_status_done_desc">اكتملت الخدمة في أرضك. يمكنك تقييم مقدم الخدمة بالنجوم.</string>
+    <string name="farmer_status_cancelled">تم إلغاء الطلب</string>
+    <string name="farmer_status_agreed_price">السعر: %1$s د.ج</string>
+    <string name="farmer_rate_provider_btn">قيّم مقدم الخدمة</string>
+    <string name="farmer_rate_provider_done">تم تقييم مقدم الخدمة — شكراً لك</string>
+    <string name="farmer_rate_dialog_title">كيف كانت الخدمة؟ اضغط على النجوم</string>
+    <string name="farmer_rate_submit_btn">حفظ التقييم</string>
+    <string name="farmer_empty_requests_msg">لم ترسل أي طلب خدمة بعد.</string>
+</resources>

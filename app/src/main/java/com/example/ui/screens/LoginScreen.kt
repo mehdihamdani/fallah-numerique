@@ -109,6 +109,7 @@ fun LoginScreen(
   onLanguageChanged: (AppLanguage) -> Unit = {},
   onAuthSuccess: () -> Unit = {},
   onPhoneVerified: (String) -> Unit = {},
+  onPhoneDraftCaptured: (String) -> Unit = {},
   onEnterVisitorMode: () -> Unit = {},
   loginViewModel: LoginViewModel = viewModel(),
 ) {
@@ -137,6 +138,9 @@ fun LoginScreen(
       onLanguageChanged(lang)
     },
     onSignInClick = {
+      loginViewModel.currentNormalizedDraftPhone()?.let { draftPhone ->
+        onPhoneDraftCaptured(draftPhone)
+      }
       loginViewModel.signInWithGoogle(
         context = context,
         credentialManager = credentialManager,
@@ -152,6 +156,9 @@ fun LoginScreen(
       loginViewModel.requestPhoneOtpCode(
         context = context,
         isResend = false,
+        credentialManager = credentialManager,
+        onPhoneDraftCaptured = onPhoneDraftCaptured,
+        onGoogleHandoffAuthSuccess = onAuthSuccess,
         onInstantAuthSuccess = { verifiedPhone ->
           onPhoneVerified(verifiedPhone)
           onAuthSuccess()
@@ -168,6 +175,9 @@ fun LoginScreen(
       loginViewModel.requestPhoneOtpCode(
         context = context,
         isResend = true,
+        credentialManager = credentialManager,
+        onPhoneDraftCaptured = onPhoneDraftCaptured,
+        onGoogleHandoffAuthSuccess = onAuthSuccess,
         onInstantAuthSuccess = { verifiedPhone ->
           onPhoneVerified(verifiedPhone)
           onAuthSuccess()
@@ -675,6 +685,74 @@ private fun LoginAuthCard(
         }
       }
 
+      val phoneSavedGuidanceStatus = uiState.status as? LoginAuthStatus.PhoneSavedReadyForGoogle
+      AnimatedVisibility(visible = phoneSavedGuidanceStatus != null) {
+        Surface(
+          modifier =
+            Modifier.fillMaxWidth()
+              .padding(bottom = 12.dp)
+              .border(
+                width = 1.5.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(16.dp),
+              )
+              .testTag("phone_saved_google_guidance_banner"),
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+        ) {
+          Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+              )
+              Text(
+                text =
+                  when (lang) {
+                    AppLanguage.AR ->
+                      "رقمك محفوظ: ${phoneSavedGuidanceStatus?.savedPhone.orEmpty()}"
+                    AppLanguage.FR ->
+                      "Numéro enregistré : ${phoneSavedGuidanceStatus?.savedPhone.orEmpty()}"
+                    AppLanguage.EN ->
+                      "Saved phone: ${phoneSavedGuidanceStatus?.savedPhone.orEmpty()}"
+                  },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+              )
+            }
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.Top,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(18.dp).padding(top = 2.dp),
+              )
+              Text(
+                text = phoneSavedGuidanceStatus?.message.orEmpty(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.weight(1f),
+              )
+            }
+          }
+        }
+      }
+
       val errorStatus = uiState.status as? LoginAuthStatus.Error
       AnimatedVisibility(visible = errorStatus != null) {
         Surface(
@@ -683,25 +761,68 @@ private fun LoginAuthCard(
               .padding(bottom = 12.dp)
               .testTag("login_error_banner"),
           shape = RoundedCornerShape(14.dp),
-          color = MaterialTheme.colorScheme.errorContainer,
+          color =
+            if (errorStatus?.suggestGoogleFallback == true) {
+              MaterialTheme.colorScheme.secondaryContainer
+            } else {
+              MaterialTheme.colorScheme.errorContainer
+            },
         ) {
-          Row(
+          Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
-            Icon(
-              imageVector = Icons.Filled.ErrorOutline,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onErrorContainer,
-              modifier = Modifier.size(20.dp),
-            )
-            Text(
-              text = errorStatus?.message.orEmpty(),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onErrorContainer,
-              modifier = Modifier.weight(1f),
-            )
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              Icon(
+                imageVector =
+                  if (errorStatus?.suggestGoogleFallback == true) Icons.Filled.Info
+                  else Icons.Filled.ErrorOutline,
+                contentDescription = null,
+                tint =
+                  if (errorStatus?.suggestGoogleFallback == true) {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                  } else {
+                    MaterialTheme.colorScheme.onErrorContainer
+                  },
+                modifier = Modifier.size(20.dp),
+              )
+              Text(
+                text = errorStatus?.message.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                color =
+                  if (errorStatus?.suggestGoogleFallback == true) {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                  } else {
+                    MaterialTheme.colorScheme.onErrorContainer
+                  },
+                modifier = Modifier.weight(1f),
+              )
+            }
+
+            if (errorStatus?.suggestGoogleFallback == true) {
+              Button(
+                onClick = {
+                  onDismissMessage()
+                  onSignInClick()
+                },
+                enabled = !uiState.isBusy,
+                shape = RoundedCornerShape(10.dp),
+                modifier =
+                  Modifier.fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("error_banner_google_fallback_button"),
+              ) {
+                Text(
+                  text = buttonText,
+                  style = MaterialTheme.typography.labelLarge,
+                  fontWeight = FontWeight.Bold,
+                )
+              }
+            }
           }
         }
       }
@@ -746,6 +867,44 @@ private fun LoginAuthCard(
           )
         }
         Spacer(modifier = Modifier.height(12.dp))
+      }
+
+      if (
+        uiState.selectedAuthMethod == AuthEntryMethod.GOOGLE &&
+          uiState.status !is LoginAuthStatus.PhoneSavedReadyForGoogle
+      ) {
+        Surface(
+          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+          shape = RoundedCornerShape(12.dp),
+          color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+          Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Icon(
+              imageVector = Icons.Filled.Info,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(18.dp),
+            )
+            Text(
+              text =
+                when (lang) {
+                  AppLanguage.AR ->
+                    "اختر حسابك المسجل في الهاتف، أو اكتب بريدك الإلكتروني (example@gmail.com) ولا تكتب رقم الهاتف داخل نافذة Google."
+                  AppLanguage.FR ->
+                    "Choisissez votre compte sur l’appareil ou saisissez votre adresse Gmail (exemple@gmail.com) — pas votre numéro dans Google."
+                  AppLanguage.EN ->
+                    "Select your account on this device or enter your Gmail address (example@gmail.com) — do not enter a phone number inside Google."
+                },
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.weight(1f),
+            )
+          }
+        }
       }
 
       // Google Sign-In CTA via Jetpack CredentialManager (always accessible!)
@@ -961,11 +1120,11 @@ private fun PhoneOtpAuthSection(
           val helperLabel =
             when (lang) {
               AppLanguage.AR ->
-                "أدخل رقم هاتفك لتلقي رمز التأكيد (SMS)، وبعد تأكيد الرمز ستضيف البريد الإلكتروني وباقي البيانات."
+                "أدخل رقم هاتفك بالصيغة المحلية (0550123456) أو الدولية (+213550123456). يتم التحقق تلقائياً عبر حماية reCAPTCHA المدمجة في أندرويد ثم إرسال رمز SMS من 6 أرقام."
               AppLanguage.FR ->
-                "Saisissez votre mobile pour recevoir le code SMS, puis ajoutez votre e-mail et vos informations."
+                "Saisissez votre numéro (ex : 0550123456 ou +213550123456). Vérification reCAPTCHA automatique intégrée puis envoi d’un code SMS à 6 chiffres."
               AppLanguage.EN ->
-                "Enter your phone number to receive a 6-digit SMS code, then add your email and profile details."
+                "Enter your phone number (e.g. 0550123456 or +213550123456). Built-in Android reCAPTCHA runs automatically before sending a 6-digit SMS code."
             }
 
           Text(
@@ -980,7 +1139,7 @@ private fun PhoneOtpAuthSection(
             enabled = !uiState.isBusy,
             singleLine = true,
             label = { Text(phoneLabel) },
-            placeholder = { Text("0550123456") },
+            placeholder = { Text("+213550123456") },
             leadingIcon = {
               Surface(
                 shape = RoundedCornerShape(8.dp),
@@ -1012,13 +1171,43 @@ private fun PhoneOtpAuthSection(
             modifier = Modifier.fillMaxWidth().testTag("phone_number_input"),
           )
 
+          val previewE164 =
+            remember(uiState.phoneInput) {
+              com.example.data.model.AccountInputValidator.normalizePhoneToE164(uiState.phoneInput)
+            }
+          AnimatedVisibility(visible = previewE164 != null) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+              )
+              Text(
+                text =
+                  when (lang) {
+                    AppLanguage.AR -> "الصيغة الدولية المعتمدة للإرسال: ${previewE164.orEmpty()}"
+                    AppLanguage.FR -> "Format international E.164 : ${previewE164.orEmpty()}"
+                    AppLanguage.EN -> "International E.164 format: ${previewE164.orEmpty()}"
+                  },
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+              )
+            }
+          }
+
           Button(
             onClick = onSendPhoneCodeClick,
             enabled = !uiState.isBusy,
             shape = RoundedCornerShape(12.dp),
             modifier =
               Modifier.fillMaxWidth()
-                .height(52.dp)
+                .height(56.dp)
                 .testTag("send_phone_otp_button"),
           ) {
             if (uiState.status is LoginAuthStatus.SendingPhoneCode) {
@@ -1026,6 +1215,17 @@ private fun PhoneOtpAuthSection(
                 modifier = Modifier.size(20.dp),
                 color = MaterialTheme.colorScheme.onPrimary,
                 strokeWidth = 2.dp,
+              )
+              Spacer(modifier = Modifier.width(10.dp))
+              Text(
+                text =
+                  when (lang) {
+                    AppLanguage.AR -> "جاري التحقق عبر reCAPTCHA وإرسال الرمز..."
+                    AppLanguage.FR -> "Vérification reCAPTCHA et envoi du SMS..."
+                    AppLanguage.EN -> "Verifying reCAPTCHA & sending SMS..."
+                  },
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
               )
             } else {
               Icon(

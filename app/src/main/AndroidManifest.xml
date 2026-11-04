@@ -12,6 +12,19 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <!-- Required on Android 11+ (targetSdk 36) so Firebase Auth's native RecaptchaActivity
+         can detect Chrome Custom Tabs / system browser for phone reCAPTCHA verification -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

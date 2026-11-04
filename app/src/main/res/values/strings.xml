@@ -112,18 +112,18 @@
     <string name="local_plot_load_btn">عرض على الخريطة</string>
     <string name="local_plot_rename_desc">إعادة تسمية القطعة المحفوظة</string>
     <string name="local_plot_delete_desc">حذف القطعة المحفوظة محلياً</string>
-    <string name="auth_tab_phone_ar">التسجيل بالهاتف (SMS)</string>
-    <string name="auth_tab_phone_fr">Téléphone (SMS)</string>
-    <string name="auth_tab_phone_en">Phone (SMS OTP)</string>
+    <string name="auth_tab_phone_ar">التسجيل برقم الهاتف</string>
+    <string name="auth_tab_phone_fr">Numéro de téléphone</string>
+    <string name="auth_tab_phone_en">Phone Number</string>
     <string name="auth_tab_google_ar">حساب Google</string>
     <string name="auth_tab_google_fr">Compte Google</string>
     <string name="auth_tab_google_en">Google Account</string>
     <string name="phone_input_label_ar">رقم الهاتف النقال (مثال: 0550123456)</string>
     <string name="phone_input_label_fr">Numéro de mobile (ex : 0550123456)</string>
     <string name="phone_input_label_en">Mobile phone number (e.g. 0550123456)</string>
-    <string name="phone_send_code_btn_ar">إرسال رمز الدخول (SMS)</string>
-    <string name="phone_send_code_btn_fr">Envoyer le code de connexion (SMS)</string>
-    <string name="phone_send_code_btn_en">Send Login Code (SMS)</string>
+    <string name="phone_send_code_btn_ar">المتابعة برقم الهاتف</string>
+    <string name="phone_send_code_btn_fr">Continuer avec ce numéro</string>
+    <string name="phone_send_code_btn_en">Continue with Phone Number</string>
     <string name="phone_otp_input_label_ar">رمز التأكيد المكون من 6 أرقام</string>
     <string name="phone_otp_input_label_fr">Code de confirmation à 6 chiffres</string>
     <string name="phone_otp_input_label_en">6-digit verification code</string>
@@ -152,5 +152,102 @@
     <string name="map_fullscreen_title">الترسيم الدقيق عبر القمر الاصطناعي (ملء الشاشة)</string>
     <string name="map_drawing_active_hint">وضع تعيين الأرض نشط: اضغط على الخريطة لإضافة رؤوس المضلع أو اسحب النقاط لتعديل الحدود</string>
     <string name="map_forage_active_hint">وضع تحديد السقي: اضغط على موقع البئر الفلاحي (Forage) فوق الخريطة</string>
+
+    <!-- Farmer Low-Literacy Home & 3-Step Service Request Flow (English fallback) -->
+    <string name="farmer_home_welcome">Farmer Space — Choose an action</string>
+    <string name="farmer_home_action_my_land">My land</string>
+    <string name="farmer_home_action_my_land_sub">View land boundaries, soil, and crop</string>
+    <string name="farmer_home_action_sell_crop">Sell my crop</string>
+    <string name="farmer_home_action_sell_crop_sub">Offer your harvest directly to buyers</string>
+    <string name="farmer_home_action_request_service">Request a service</string>
+    <string name="farmer_home_action_request_service_sub">Workers, machinery, transport, or soil analysis</string>
+
+    <string name="farmer_srv_title">Request a service</string>
+    <string name="farmer_srv_subtitle">Choose what you need in at most 3 simple steps</string>
+    <string name="farmer_srv_btn_back">Back</string>
+    <string name="farmer_srv_btn_home">Back to home</string>
+    <string name="farmer_srv_my_requests_btn">My requests (%1$d)</string>
+    <string name="farmer_srv_new_request_btn">Request another service</string>
+
+    <string name="farmer_srv_call_engineer">Call my engineer</string>
+    <string name="farmer_srv_call_engineer_sub">Ask an agronomist for advice or a field visit</string>
+
+    <string name="farmer_tile_workers">Workers</string>
+    <string name="farmer_tile_workers_sub">Field labor and harvesting crew</string>
+    <string name="farmer_tile_machinery">Machinery</string>
+    <string name="farmer_tile_machinery_sub">Plowing, tractor, and harvester</string>
+    <string name="farmer_tile_transport">Transport</string>
+    <string name="farmer_tile_transport_sub">Trucks for crops and farm loads</string>
+    <string name="farmer_tile_analysis_scan">Analysis and scanning</string>
+    <string name="farmer_tile_analysis_scan_sub">Soil analysis and drone scanning</string>
+    <string name="farmer_tile_other">Other</string>
+    <string name="farmer_tile_other_sub">Irrigation, cold room, well drilling</string>
+
+    <string name="farmer_step_progress">Step %1$d of 3</string>
+    <string name="farmer_step1_choose_service">Choose the service you need</string>
+    <string name="farmer_step2_choose_date">Choose a date</string>
+    <string name="farmer_step3_confirm_title">Check and send your request</string>
+
+    <string name="srv_cat_farm_labor_supply">Field workers</string>
+    <string name="srv_cat_harvesting_picking">Harvesting and picking crew</string>
+    <string name="srv_cat_plowing_leveling">Plowing and land leveling</string>
+    <string name="srv_cat_tractor_machinery_rental">Tractor rental</string>
+    <string name="srv_cat_harvester_rental">Harvester rental</string>
+    <string name="srv_cat_agricultural_transport_service">Crop transport truck</string>
+    <string name="srv_cat_soil_lab_inraa">Soil laboratory analysis</string>
+    <string name="srv_cat_drone_ndvi_scan">Drone field scanning</string>
+    <string name="srv_cat_irrigation_install_maint">Irrigation setup and repair</string>
+    <string name="srv_cat_cold_storage_warehouses">Cold storage room</string>
+    <string name="srv_cat_forage_drilling">Well drilling and repair</string>
+    <string name="srv_cat_agronomic_advisory">Seasonal crop guidance</string>
+    <string name="srv_cat_agronomist_consultation">Call or field visit by an engineer</string>
+
+    <string name="srv_unit_day">day</string>
+    <string name="srv_unit_hectare">hectare</string>
+    <string name="srv_unit_trip">trip</string>
+    <string name="srv_unit_service">service</string>
+
+    <string name="farmer_slot_tomorrow">Tomorrow (%1$s)</string>
+    <string name="farmer_slot_in_three_days">In 3 days (%1$s)</string>
+    <string name="farmer_slot_end_of_week">In 6 days (%1$s)</string>
+    <string name="farmer_slot_other_date">Other date</string>
+    <string name="farmer_slot_other_date_selected">Other date: %1$s</string>
+    <string name="farmer_slot_other_dialog_title">Choose another date</string>
+    <string name="farmer_slot_other_confirm">Confirm date</string>
+    <string name="farmer_slot_other_cancel">Cancel</string>
+
+    <string name="farmer_summary_service_label">Service</string>
+    <string name="farmer_summary_date_label">Preferred date</string>
+    <string name="farmer_summary_land_label">Land</string>
+    <string name="farmer_summary_location_label">Wilaya and commune</string>
+    <string name="farmer_summary_gps_ready">Land GPS center attached automatically</string>
+    <string name="farmer_summary_indicative_price_label">Indicative reference price</string>
+    <string name="farmer_summary_indicative_price_value">%1$s DZD (%2$s) — indicative only</string>
+    <string name="farmer_summary_indicative_price_none">Indicative price set by local provider</string>
+    <string name="farmer_btn_send_request">Send request</string>
+    <string name="farmer_btn_sending">Sending request…</string>
+
+    <string name="farmer_no_parcel_title">Your land will be registered during a field visit</string>
+    <string name="farmer_no_parcel_explanation">You cannot send a service request yet because no parcel is registered on your account. Register your parcel under My land or wait for a field visit so local providers know your exact location.</string>
+    <string name="farmer_no_parcel_go_my_land">Open My land</string>
+
+    <string name="farmer_draft_saved_badge">Saved on your phone for slow connections</string>
+    <string name="farmer_send_retry_title">Connection interrupted — your request is saved on your phone</string>
+    <string name="farmer_btn_retry_send">Retry sending request</string>
+
+    <string name="farmer_status_screen_heading">Service request status</string>
+    <string name="farmer_status_waiting_provider">Waiting for a provider</string>
+    <string name="farmer_status_waiting_provider_desc">Sent to providers registered in your wilaya and commune.</string>
+    <string name="farmer_status_provider_accepted">A provider accepted</string>
+    <string name="farmer_status_provider_accepted_desc">A provider accepted your request for the selected date.</string>
+    <string name="farmer_status_done">Done</string>
+    <string name="farmer_status_done_desc">The service is finished. You can rate the provider below.</string>
+    <string name="farmer_status_cancelled">Cancelled</string>
+    <string name="farmer_status_agreed_price">Price: %1$s DZD</string>
+    <string name="farmer_rate_provider_btn">Rate provider</string>
+    <string name="farmer_rate_provider_done">Provider rated — thank you</string>
+    <string name="farmer_rate_dialog_title">How was the provider? Tap stars</string>
+    <string name="farmer_rate_submit_btn">Save rating</string>
+    <string name="farmer_empty_requests_msg">You have not sent a service request yet.</string>
 </resources>
 

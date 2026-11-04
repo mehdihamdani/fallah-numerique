@@ -133,6 +133,34 @@ service cloud.firestore {
              data.notes is string && data.notes.size() <= 300 &&
              data.status is string &&
              data.status in ['pending', 'quoted', 'accepted', 'completed', 'cancelled'] &&
+             (!('parcelId' in data) || (data.parcelId is string && data.parcelId.size() <= 128)) &&
+             (!('commune' in data) || (data.commune is string && data.commune.size() <= 80)) &&
+             (!('serviceCategory' in data) || (
+               data.serviceCategory is string &&
+               data.serviceCategory.size() <= 60 &&
+               (data.serviceCategory == '' || data.serviceCategory in [
+                 'plowing_leveling',
+                 'tractor_machinery_rental',
+                 'irrigation_install_maint',
+                 'farm_labor_supply',
+                 'harvesting_picking',
+                 'seeds_seedlings',
+                 'fertilizers_supply',
+                 'cold_storage_warehouses',
+                 'agricultural_transport_service',
+                 'agronomist_consultation',
+                 'market_prices_service',
+                 'agri_weather_service',
+                 'soil_lab_inraa',
+                 'drone_ndvi_scan',
+                 'forage_drilling',
+                 'harvester_rental',
+                 'agronomic_advisory'
+               ])
+             )) &&
+             (!('preferredDate' in data) || (data.preferredDate is string && data.preferredDate.size() <= 40)) &&
+             (!('centroidLat' in data) || (data.centroidLat is number && data.centroidLat >= -90 && data.centroidLat <= 90)) &&
+             (!('centroidLng' in data) || (data.centroidLng is number && data.centroidLng >= -180 && data.centroidLng <= 180)) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -194,6 +222,8 @@ service cloud.firestore {
              data.pricePerKgDzd is number && data.pricePerKgDzd > 0 && data.pricePerKgDzd <= 100000 &&
              data.status is string && data.status.size() <= 20 &&
              data.status in ['active', 'sold'] &&
+             (!('photoBase64' in data) || (data.photoBase64 is string && data.photoBase64.size() <= 800000)) &&
+             (!('photoStoragePath' in data) || (data.photoStoragePath is string && data.photoStoragePath.size() <= 200)) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -397,10 +427,23 @@ service cloud.firestore {
                          'requesterId', 'requesterName', 'requesterRole', 'providerId',
                          'targetRole', 'targetItemId', 'orderType', 'itemTitle', 'wilaya',
                          'quantity', 'unitLabel', 'proposedPriceDzd', 'notes', 'status',
+                         'parcelId', 'commune', 'serviceCategory', 'preferredDate',
+                         'centroidLat', 'centroidLng',
                          'createdAt', 'updatedAt'
                        ]) &&
                        isValidMarketplaceOrder(incoming()) &&
-                       callerHasAssignedRole(incoming().requesterRole);
+                       callerHasAssignedRole(incoming().requesterRole) &&
+                       (
+                         !(incoming().orderType == 'service_quote' && incoming().requesterRole == 'farmer') ||
+                         (
+                           incoming().targetRole == 'service_provider' &&
+                           incoming().providerId == '' &&
+                           'parcelId' in incoming() &&
+                           isValidId(incoming().parcelId) &&
+                           exists(/databases/$(database)/documents/parcels/$(incoming().parcelId)) &&
+                           get(/databases/$(database)/documents/parcels/$(incoming().parcelId)).data.userId == request.auth.uid
+                         )
+                       );
 
       allow update: if isSignedIn() &&
                        isValidId(orderId) &&
@@ -417,20 +460,34 @@ service cloud.firestore {
                            incoming().providerId == existing().providerId &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'notes', 'status', 'updatedAt'
-                           ])
+                           ]) &&
+                           (
+                             existing().orderType != 'service_quote' ||
+                             (
+                               incoming().status == existing().status ||
+                               incoming().status == 'cancelled' ||
+                               (existing().status == 'quoted' && incoming().status == 'accepted')
+                             )
+                           )
                          ) ||
                          (
                            existing().providerId == request.auth.uid &&
                            incoming().providerId == existing().providerId &&
+                           callerHasAssignedRole(existing().targetRole) &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'proposedPriceDzd', 'notes', 'status', 'updatedAt'
-                           ])
+                           ]) &&
+                           (
+                             incoming().status != 'completed' ||
+                             existing().status == 'accepted'
+                           )
                          ) ||
                          (
                            existing().providerId == '' &&
                            existing().status == 'pending' &&
                            incoming().providerId == request.auth.uid &&
                            callerHasAssignedRole(existing().targetRole) &&
+                           incoming().status in ['quoted', 'accepted'] &&
                            incoming().diff(existing()).affectedKeys().hasOnly([
                              'providerId', 'proposedPriceDzd', 'notes', 'status', 'updatedAt'
                            ])
@@ -535,7 +592,7 @@ service cloud.firestore {
                        incoming().keys().hasOnly([
                          'userId', 'parcelId', 'operatorName', 'parcelReference',
                          'cropType', 'wilaya', 'availableTons', 'pricePerKgDzd',
-                         'status', 'createdAt', 'updatedAt'
+                         'status', 'photoBase64', 'photoStoragePath', 'createdAt', 'updatedAt'
                        ]) &&
                        incoming().status == 'active' &&
                        isValidMarketListing(incoming()) &&
@@ -552,7 +609,7 @@ service cloud.firestore {
                        incoming().createdAt == existing().createdAt &&
                        (
                          incoming().diff(existing()).affectedKeys().hasOnly([
-                           'operatorName', 'availableTons', 'pricePerKgDzd', 'updatedAt'
+                           'operatorName', 'availableTons', 'pricePerKgDzd', 'photoBase64', 'photoStoragePath', 'updatedAt'
                          ]) ||
                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
                        );

@@ -645,7 +645,10 @@ fun OrdersAndQuotesScreen(
                     Text(RoleStrings.tr(language, "قبول عرض السعر", "Accepter devis", "Accept Quote"))
                   }
                 }
-                if (order.status == "accepted") {
+                if (
+                  order.status == "accepted" &&
+                    (!isRequester || order.orderType != "service_quote")
+                ) {
                   Button(
                     onClick = { onUpdateOrderStatus(order.id, "completed") },
                     modifier = Modifier.height(48.dp),

@@ -50,6 +50,8 @@ data class MarketListing(
   val availableTons: Double = 38.5,
   val pricePerKgDzd: Double = 420.0,
   val status: String = "active",
+  val photoBase64: String = "",
+  val photoStoragePath: String = "",
   @ServerTimestamp val createdAt: Timestamp? = null,
   @ServerTimestamp val updatedAt: Timestamp? = null,
 )
@@ -186,6 +188,27 @@ enum class CropVarietyType(
     subtitleFr = "Tomate industrielle",
     defaultYieldTonsHa = 65.0,
     defaultPriceKgDzd = 42.0,
+  ),
+  MIEL_NATUREL(
+    code = "miel_naturel",
+    titleAr = "عسل طبيعي وتربية النحل",
+    subtitleFr = "Miel Naturel & Apiculture (Sidr / Eucalyptus)",
+    defaultYieldTonsHa = 1.2,
+    defaultPriceKgDzd = 3800.0,
+  ),
+  POISSON_AQUACULTURE(
+    code = "poisson_aquaculture",
+    titleAr = "سمك وتربية المائيات",
+    subtitleFr = "Poissons & Aquaculture (Tilapia / Carpe)",
+    defaultYieldTonsHa = 8.5,
+    defaultPriceKgDzd = 650.0,
+  ),
+  ELEVAGE_OVIN_BOVIN(
+    code = "elevage_ovin_bovin",
+    titleAr = "مواشي وأبقار (لحوم وألبان)",
+    subtitleFr = "Élevage Ovin / Bovin / Caprin",
+    defaultYieldTonsHa = 12.0,
+    defaultPriceKgDzd = 1450.0,
   );
 
   companion object {
@@ -215,6 +238,117 @@ enum class CropVarietyType(
 
     fun resolveDefaultYieldTonsHa(rawCrop: String): Double =
       fromCodeOrNull(rawCrop)?.defaultYieldTonsHa ?: 20.0
+  }
+}
+
+enum class MarketClassification(
+  val code: String,
+  val titleAr: String,
+  val titleFr: String,
+  val titleEn: String,
+  val iconEmoji: String,
+  val defaultUnitAr: String,
+  val themeColorHex: Long,
+) {
+  ALL(
+    code = "all",
+    titleAr = "جميع المنتجات",
+    titleFr = "Tous les produits",
+    titleEn = "All Products",
+    iconEmoji = "🌾",
+    defaultUnitAr = "كلغ / طن",
+    themeColorHex = 0xFF2E7D32,
+  ),
+  HONEY(
+    code = "honey",
+    titleAr = "عسل وتربية النحل",
+    titleFr = "Miel & Apiculture",
+    titleEn = "Honey & Beekeeping",
+    iconEmoji = "🍯",
+    defaultUnitAr = "د.ج / كغ",
+    themeColorHex = 0xFFD97706,
+  ),
+  FISH(
+    code = "fish",
+    titleAr = "سمك وتربية المائيات",
+    titleFr = "Poissons & Aquaculture",
+    titleEn = "Fish & Aquaculture",
+    iconEmoji = "🐟",
+    defaultUnitAr = "د.ج / كغ",
+    themeColorHex = 0xFF0284C7,
+  ),
+  LIVESTOCK(
+    code = "livestock",
+    titleAr = "مواشي وأبقار ولحوم",
+    titleFr = "Élevage & Bétail",
+    titleEn = "Livestock & Cattle",
+    iconEmoji = "🐑",
+    defaultUnitAr = "د.ج / كغ أو رأس",
+    themeColorHex = 0xFF7C3AED,
+  ),
+  CROPS(
+    code = "crops",
+    titleAr = "محاصيل وخضار وتمور",
+    titleFr = "Cultures & Dattes",
+    titleEn = "Crops & Harvests",
+    iconEmoji = "🌴",
+    defaultUnitAr = "د.ج / كغ أو طن",
+    themeColorHex = 0xFF059669,
+  );
+
+  fun localizedTitle(language: AppLanguage): String =
+    when (language) {
+      AppLanguage.AR -> titleAr
+      AppLanguage.FR -> titleFr
+      AppLanguage.EN -> titleEn
+    }
+
+  companion object {
+    fun fromCode(code: String): MarketClassification =
+      entries.firstOrNull { it.code.equals(code.trim(), ignoreCase = true) } ?: ALL
+
+    fun classify(cropType: String): MarketClassification {
+      val normalized = cropType.lowercase().trim()
+      return when {
+        normalized.contains("miel") ||
+          normalized.contains("عسل") ||
+          normalized.contains("نحل") ||
+          normalized.contains("apiculture") ||
+          normalized.contains("sidr") ||
+          normalized.contains("سدر") ||
+          normalized.contains("eucalyptus") ||
+          normalized.contains("كاليتوس") -> HONEY
+
+        normalized.contains("poisson") ||
+          normalized.contains("سمك") ||
+          normalized.contains("مائيات") ||
+          normalized.contains("aquaculture") ||
+          normalized.contains("tilapia") ||
+          normalized.contains("بلطي") ||
+          normalized.contains("carpe") ||
+          normalized.contains("كارب") ||
+          normalized.contains("شبوط") ||
+          normalized.contains("حوت") -> FISH
+
+        normalized.contains("elevage") ||
+          normalized.contains("ovin") ||
+          normalized.contains("bovin") ||
+          normalized.contains("مواشي") ||
+          normalized.contains("أبقار") ||
+          normalized.contains("بقر") ||
+          normalized.contains("غنم") ||
+          normalized.contains("خروف") ||
+          normalized.contains("خراف") ||
+          normalized.contains("عجل") ||
+          normalized.contains("عجول") ||
+          normalized.contains("لحوم") ||
+          normalized.contains("ماعز") ||
+          normalized.contains("كباش") ||
+          normalized.contains("ألبان") -> LIVESTOCK
+
+        else -> CROPS
+      }
+    }
   }
 }
 

@@ -184,6 +184,14 @@
           "enum": ["active", "sold"],
           "description": "Listing lifecycle state; sold is terminal."
         },
+        "photoBase64": {
+          "type": "string",
+          "description": "Optional direct camera/gallery photo encoded in compressed Base64 JPEG data URL."
+        },
+        "photoStoragePath": {
+          "type": "string",
+          "description": "Optional storage path for item image."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -657,6 +665,30 @@
           "type": "string",
           "enum": ["pending", "quoted", "accepted", "completed", "cancelled"],
           "description": "Order lifecycle status; completed and cancelled are terminal."
+        },
+        "parcelId": {
+          "type": "string",
+          "description": "Optional referenced AgriculturalParcel document ID owned by the farmer (mandatory when orderType == 'service_quote' and requesterRole == 'farmer')."
+        },
+        "commune": {
+          "type": "string",
+          "description": "Optional Commune / Daira of the agricultural parcel for commune-level provider routing (<= 80 chars)."
+        },
+        "serviceCategory": {
+          "type": "string",
+          "description": "Optional canonical ServiceBooking.serviceCategory code (e.g., farm_labor_supply, tractor_machinery_rental, soil_lab_inraa, drone_ndvi_scan) kept out of farmer-facing labels."
+        },
+        "preferredDate": {
+          "type": "string",
+          "description": "Optional requested execution date ISO string or slot label (<= 40 chars)."
+        },
+        "centroidLat": {
+          "type": "number",
+          "description": "Optional WGS84 parcel centroid latitude (-90.0..90.0) computed by GeoCoordinateMapper.computeCentroid."
+        },
+        "centroidLng": {
+          "type": "number",
+          "description": "Optional WGS84 parcel centroid longitude (-180.0..180.0) computed by GeoCoordinateMapper.computeCentroid."
         },
         "createdAt": {
           "type": "string",

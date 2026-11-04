@@ -1252,7 +1252,7 @@ test("parcels allow empty mainCrop and custom farmer product names while rejecti
     })
   );
 
-  // 4. Market listing accepts custom cropType (1..80 chars) and rejects blank or >80 chars
+  // 4. Market listing accepts custom cropType (1..80 chars) and optional photoBase64
   await assertSucceeds(
     aliceDb.collection("market_listings").doc("listing_custom_crop").set({
       userId: ALICE_UID,
@@ -1264,6 +1264,7 @@ test("parcels allow empty mainCrop and custom farmer product names while rejecti
       availableTons: 24.0,
       pricePerKgDzd: 65,
       status: "active",
+      photoBase64: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
       createdAt: now,
       updatedAt: now,
     })
@@ -1285,5 +1286,199 @@ test("parcels allow empty mainCrop and custom farmer product names while rejecti
     })
   );
 });
+
+test("21. Farmer service_quote lifecycle: farmer with parcel creates open request, provider reads & accepts, second provider cannot overwrite, and only assigned provider can complete", async () => {
+  const now = new Date(Date.now() - 3000);
+  const PROVIDER_1_UID = "provider_biskra_01";
+  const PROVIDER_2_UID = "provider_biskra_02";
+  const TRADER_ONLY_UID = "trader_outsider_04";
+
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const adminDb = ctx.firestore();
+    await adminDb
+      .collection("users")
+      .doc(ALICE_UID)
+      .set(buildUserAccount(ALICE_UID, ["farmer"], "farmer", true, 5, now));
+    await adminDb
+      .collection("parcels")
+      .doc("alice_parcel_tolga")
+      .set(buildValidParcel(ALICE_UID, now));
+    await adminDb
+      .collection("users")
+      .doc(PROVIDER_1_UID)
+      .set(buildUserAccount(PROVIDER_1_UID, ["service_provider"], "service_provider", true, 5, now));
+    await adminDb
+      .collection("users")
+      .doc(PROVIDER_2_UID)
+      .set(buildUserAccount(PROVIDER_2_UID, ["service_provider"], "service_provider", true, 5, now));
+    await adminDb
+      .collection("users")
+      .doc(TRADER_ONLY_UID)
+      .set(buildUserAccount(TRADER_ONLY_UID, ["trader"], "trader", true, 5, now));
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const provider1Db = testEnv.authenticatedContext(PROVIDER_1_UID).firestore();
+  const provider2Db = testEnv.authenticatedContext(PROVIDER_2_UID).firestore();
+  const traderDb = testEnv.authenticatedContext(TRADER_ONLY_UID).firestore();
+
+  const orderId = "srv_req_tolga_01";
+  const validServiceQuote = {
+    requesterId: ALICE_UID,
+    requesterName: "أحمد الفلاح",
+    requesterRole: "farmer",
+    providerId: "",
+    targetRole: "service_provider",
+    targetItemId: "cat_tractor_07",
+    orderType: "service_quote",
+    itemTitle: "كراء الجرارات والآلات",
+    wilaya: "07 - بسكرة (Biskra)",
+    commune: "طولقة (Tolga Oasis)",
+    parcelId: "alice_parcel_tolga",
+    serviceCategory: "tractor_machinery_rental",
+    preferredDate: "2026-11-05",
+    centroidLat: 34.7201,
+    centroidLng: 5.3802,
+    quantity: 4.82,
+    unitLabel: "هكتار",
+    proposedPriceDzd: 6500,
+    notes: "قطاع بسكرة - طولقة",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // 1. Farmer with owned parcel creates open service_quote (providerId: "", targetRole: "service_provider")
+  await assertSucceeds(
+    aliceDb.collection("marketplace_orders").doc(orderId).set(validServiceQuote)
+  );
+
+  // Non-service_provider (trader) cannot list or get open service_quote requests
+  await assertFails(traderDb.collection("marketplace_orders").doc(orderId).get());
+
+  // 2. Service provider holding service_provider role reads open requests in their wilaya and accepts one
+  await assertSucceeds(
+    provider1Db
+      .collection("marketplace_orders")
+      .where("providerId", "==", "")
+      .where("status", "==", "pending")
+      .where("targetRole", "==", "service_provider")
+      .where("wilaya", "==", "07 - بسكرة (Biskra)")
+      .get()
+  );
+
+  // Unassigned provider cannot jump straight from pending to completed without accepting first
+  await assertFails(
+    provider1Db.collection("marketplace_orders").doc(orderId).update({
+      providerId: PROVIDER_1_UID,
+      status: "completed",
+      updatedAt: new Date(Date.now() - 2000),
+    })
+  );
+
+  // Provider 1 accepts the request and adjusts proposedPriceDzd
+  await assertSucceeds(
+    provider1Db.collection("marketplace_orders").doc(orderId).update({
+      providerId: PROVIDER_1_UID,
+      status: "accepted",
+      proposedPriceDzd: 6200,
+      notes: "متوفر غداً صباحاً مع جرار رباعي الدفع",
+      updatedAt: new Date(Date.now() - 1800),
+    })
+  );
+
+  // 3. Another service_provider tries to accept or overwrite providerId on an accepted request -> MUST FAIL
+  await assertFails(
+    provider2Db.collection("marketplace_orders").doc(orderId).update({
+      providerId: PROVIDER_2_UID,
+      status: "accepted",
+      proposedPriceDzd: 5900,
+      updatedAt: new Date(Date.now() - 1500),
+    })
+  );
+
+  // 4. Completion by a non-assigned provider (Provider 2) OR by the farmer requester -> MUST FAIL
+  await assertFails(
+    provider2Db.collection("marketplace_orders").doc(orderId).update({
+      status: "completed",
+      updatedAt: new Date(Date.now() - 1200),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("marketplace_orders").doc(orderId).update({
+      status: "completed",
+      updatedAt: new Date(Date.now() - 1000),
+    })
+  );
+
+  // 5. Only the assigned provider (Provider 1) who accepted can mark the request "completed" -> SUCCEEDS
+  await assertSucceeds(
+    provider1Db.collection("marketplace_orders").doc(orderId).update({
+      status: "completed",
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+});
+
+test("22. Farmer WITHOUT a registered parcel (or referencing another farmer's parcel) cannot create a service_quote request", async () => {
+  const now = new Date(Date.now() - 2000);
+  const LANDLESS_FARMER_UID = "farmer_no_parcel_09";
+
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const adminDb = ctx.firestore();
+    await adminDb
+      .collection("users")
+      .doc(LANDLESS_FARMER_UID)
+      .set(buildUserAccount(LANDLESS_FARMER_UID, ["farmer"], "farmer", true, 5, now));
+    // Bob owns a parcel, but LANDLESS_FARMER_UID owns ZERO parcels
+    await adminDb
+      .collection("parcels")
+      .doc("bob_owned_parcel")
+      .set(buildValidParcel(BOB_UID, now));
+  });
+
+  const landlessDb = testEnv.authenticatedContext(LANDLESS_FARMER_UID).firestore();
+
+  const baseOrder = {
+    requesterId: LANDLESS_FARMER_UID,
+    requesterName: "فلاح بدون قطعة مسجلة",
+    requesterRole: "farmer",
+    providerId: "",
+    targetRole: "service_provider",
+    targetItemId: "",
+    orderType: "service_quote",
+    itemTitle: "توفير العمالة",
+    wilaya: "07 - بسكرة (Biskra)",
+    quantity: 1,
+    unitLabel: "يوم",
+    proposedPriceDzd: 3500,
+    notes: "",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Case A: Missing parcelId completely -> MUST FAIL
+  await assertFails(
+    landlessDb.collection("marketplace_orders").doc("srv_no_parcel_a").set(baseOrder)
+  );
+
+  // Case B: Non-existent parcelId -> MUST FAIL
+  await assertFails(
+    landlessDb.collection("marketplace_orders").doc("srv_no_parcel_b").set({
+      ...baseOrder,
+      parcelId: "non_existent_parcel_999",
+    })
+  );
+
+  // Case C: Referencing another farmer's parcel (Bob's parcel) -> MUST FAIL
+  await assertFails(
+    landlessDb.collection("marketplace_orders").doc("srv_no_parcel_c").set({
+      ...baseOrder,
+      parcelId: "bob_owned_parcel",
+    })
+  );
+});
+
 
 

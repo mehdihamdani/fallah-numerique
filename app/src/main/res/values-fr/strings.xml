@@ -1,0 +1,98 @@
+<resources>
+    <!-- Farmer Low-Literacy Home & 3-Step Service Request Flow (French Secondary) -->
+    <string name="farmer_home_welcome">Espace Agriculteur — Choisissez une action</string>
+    <string name="farmer_home_action_my_land">Ma terre</string>
+    <string name="farmer_home_action_my_land_sub">Voir ma parcelle, le sol et ma culture</string>
+    <string name="farmer_home_action_sell_crop">Vendre ma récolte</string>
+    <string name="farmer_home_action_sell_crop_sub">Proposer ma récolte directement aux acheteurs</string>
+    <string name="farmer_home_action_request_service">Demander un service</string>
+    <string name="farmer_home_action_request_service_sub">Ouvriers, machines, transport ou analyse</string>
+
+    <string name="farmer_srv_title">Demander un service</string>
+    <string name="farmer_srv_subtitle">Choisissez votre besoin en 3 étapes simples</string>
+    <string name="farmer_srv_btn_back">Retour</string>
+    <string name="farmer_srv_btn_home">Retour à l’accueil</string>
+    <string name="farmer_srv_my_requests_btn">Suivre mes demandes (%1$d)</string>
+    <string name="farmer_srv_new_request_btn">Nouvelle demande</string>
+
+    <string name="farmer_srv_call_engineer">Appeler mon ingénieur</string>
+    <string name="farmer_srv_call_engineer_sub">Demander conseil à un ingénieur ou une visite terrain</string>
+
+    <string name="farmer_tile_workers">Ouvriers</string>
+    <string name="farmer_tile_workers_sub">Main-d’œuvre et cueillette</string>
+    <string name="farmer_tile_machinery">Machines</string>
+    <string name="farmer_tile_machinery_sub">Labour, tracteur et moissonneuse</string>
+    <string name="farmer_tile_transport">Transport</string>
+    <string name="farmer_tile_transport_sub">Camions pour récolte et matériel</string>
+    <string name="farmer_tile_analysis_scan">Analyse et scan</string>
+    <string name="farmer_tile_analysis_scan_sub">Analyse du sol et scan par drone</string>
+    <string name="farmer_tile_other">Autre</string>
+    <string name="farmer_tile_other_sub">Irrigation, chambre froide et forage</string>
+
+    <string name="farmer_step_progress">Étape %1$d sur 3</string>
+    <string name="farmer_step1_choose_service">Choisissez le service souhaité</string>
+    <string name="farmer_step2_choose_date">Choisissez une date</string>
+    <string name="farmer_step3_confirm_title">Vérifiez le résumé avant l’envoi</string>
+
+    <string name="srv_cat_farm_labor_supply">Ouvriers agricoles</string>
+    <string name="srv_cat_harvesting_picking">Équipe de récolte et cueillette</string>
+    <string name="srv_cat_plowing_leveling">Labour et nivellement du sol</string>
+    <string name="srv_cat_tractor_machinery_rental">Location de tracteur</string>
+    <string name="srv_cat_harvester_rental">Location de moissonneuse</string>
+    <string name="srv_cat_agricultural_transport_service">Camion de transport agricole</string>
+    <string name="srv_cat_soil_lab_inraa">Analyse de sol au laboratoire</string>
+    <string name="srv_cat_drone_ndvi_scan">Scan aérien par drone</string>
+    <string name="srv_cat_irrigation_install_maint">Installation et réparation d’irrigation</string>
+    <string name="srv_cat_cold_storage_warehouses">Chambre froide de stockage</string>
+    <string name="srv_cat_forage_drilling">Forage et entretien de puits</string>
+    <string name="srv_cat_agronomic_advisory">Suivi et conseil agricole</string>
+    <string name="srv_cat_agronomist_consultation">Appel ou visite d’un ingénieur agronome</string>
+
+    <string name="srv_unit_day">jour</string>
+    <string name="srv_unit_hectare">hectare</string>
+    <string name="srv_unit_trip">trajet</string>
+    <string name="srv_unit_service">service</string>
+
+    <string name="farmer_slot_tomorrow">Demain (%1$s)</string>
+    <string name="farmer_slot_in_three_days">Dans 3 jours (%1$s)</string>
+    <string name="farmer_slot_end_of_week">Dans 6 jours (%1$s)</string>
+    <string name="farmer_slot_other_date">Autre date</string>
+    <string name="farmer_slot_other_date_selected">Autre date : %1$s</string>
+    <string name="farmer_slot_other_dialog_title">Choisir une autre date</string>
+    <string name="farmer_slot_other_confirm">Valider la date</string>
+    <string name="farmer_slot_other_cancel">Annuler</string>
+
+    <string name="farmer_summary_service_label">Service choisi</string>
+    <string name="farmer_summary_date_label">Date souhaitée</string>
+    <string name="farmer_summary_land_label">Parcelle agricole</string>
+    <string name="farmer_summary_location_label">Wilaya et commune</string>
+    <string name="farmer_summary_gps_ready">Position GPS du centre de la parcelle jointe</string>
+    <string name="farmer_summary_indicative_price_label">Prix de référence indicatif</string>
+    <string name="farmer_summary_indicative_price_value">%1$s DZD (%2$s) — à titre indicatif</string>
+    <string name="farmer_summary_indicative_price_none">Tarif indicatif fixé par le prestataire local</string>
+    <string name="farmer_btn_send_request">Envoyer la demande</string>
+    <string name="farmer_btn_sending">Envoi de la demande…</string>
+
+    <string name="farmer_no_parcel_title">Votre terre sera enregistrée lors d’une visite sur le terrain</string>
+    <string name="farmer_no_parcel_explanation">Vous ne pouvez pas encore envoyer cette demande car aucune terre n’est enregistrée sur votre compte. Enregistrez d’abord votre parcelle dans « Ma terre » ou lors d’une visite sur le terrain.</string>
+    <string name="farmer_no_parcel_go_my_land">Ouvrir Ma terre</string>
+
+    <string name="farmer_draft_saved_badge">Demande enregistrée sur le téléphone (réseau lent)</string>
+    <string name="farmer_send_retry_title">Réseau faible — votre demande est conservée sur le téléphone</string>
+    <string name="farmer_btn_retry_send">Réessayer l’envoi</string>
+
+    <string name="farmer_status_screen_heading">État de la demande</string>
+    <string name="farmer_status_waiting_provider">En attente d’un prestataire</string>
+    <string name="farmer_status_waiting_provider_desc">Votre demande est visible par les prestataires de votre wilaya et commune.</string>
+    <string name="farmer_status_provider_accepted">Un prestataire a accepté</string>
+    <string name="farmer_status_provider_accepted_desc">Un prestataire a accepté votre demande pour la date choisie.</string>
+    <string name="farmer_status_done">Terminé</string>
+    <string name="farmer_status_done_desc">Le service est terminé. Vous pouvez évaluer le prestataire.</string>
+    <string name="farmer_status_cancelled">Annulé</string>
+    <string name="farmer_status_agreed_price">Prix : %1$s DZD</string>
+    <string name="farmer_rate_provider_btn">Noter le prestataire</string>
+    <string name="farmer_rate_provider_done">Prestataire évalué — merci</string>
+    <string name="farmer_rate_dialog_title">Comment s’est passé le service ? Touchez les étoiles</string>
+    <string name="farmer_rate_submit_btn">Enregistrer la note</string>
+    <string name="farmer_empty_requests_msg">Aucune demande envoyée pour le moment.</string>
+</resources>

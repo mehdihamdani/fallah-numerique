@@ -34,11 +34,13 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Nature
 import androidx.compose.material.icons.filled.Park
+import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Texture
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -1161,6 +1163,9 @@ private fun CropOptionTile(
       CropVarietyType.POMME_DE_TERRE -> Icons.Filled.Spa
       CropVarietyType.OLIVIER -> Icons.Filled.Nature
       CropVarietyType.TOMATE_INDUSTRIELLE -> Icons.Filled.Grass
+      CropVarietyType.MIEL_NATUREL -> Icons.Filled.Eco
+      CropVarietyType.POISSON_AQUACULTURE -> Icons.Filled.WaterDrop
+      CropVarietyType.ELEVAGE_OVIN_BOVIN -> Icons.Filled.Pets
     }
 
   Surface(

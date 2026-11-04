@@ -504,6 +504,51 @@ fun RoleOnboardingScreen(
                         }
                       }
                     }
+                  } else if (phoneDraft.isNotBlank()) {
+                    Surface(
+                      shape = RoundedCornerShape(14.dp),
+                      color = MaterialTheme.colorScheme.secondaryContainer,
+                      modifier = Modifier.fillMaxWidth().testTag("prefilled_phone_banner"),
+                    ) {
+                      Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                      ) {
+                        Icon(
+                          imageVector = Icons.Filled.CheckCircle,
+                          contentDescription = null,
+                          tint = MaterialTheme.colorScheme.primary,
+                          modifier = Modifier.size(22.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                          Text(
+                            text =
+                              RoleStrings.tr(
+                                language,
+                                ar = "تم ربط رقم هاتفك بملفك بنجاح: $phoneDraft",
+                                fr = "Numéro de téléphone associé à votre profil : $phoneDraft",
+                                en = "Phone number linked to your profile: $phoneDraft",
+                              ),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                          )
+                          Text(
+                            text =
+                              RoleStrings.tr(
+                                language,
+                                ar = "أكمل تأكيد بريدك الإلكتروني وبياناتك الشخصية والمهنية للمتابعة.",
+                                fr = "Confirmez votre e-mail et vos informations professionnelles pour continuer.",
+                                en = "Confirm your email and professional details to continue.",
+                              ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color =
+                              MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
+                          )
+                        }
+                      }
+                    }
                   }
 
                   Surface(

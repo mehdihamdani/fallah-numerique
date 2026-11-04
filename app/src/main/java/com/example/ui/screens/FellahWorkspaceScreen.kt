@@ -550,8 +550,8 @@ fun FellahWorkspaceScreen(
         parcel = editorState.activeParcel,
         defaultOperatorName = currentUser.displayName ?: "Coopérative El Baraka",
         onDismiss = { viewModel.setShowPublishMarketDialog(false) },
-        onConfirmPublish = { operatorName, tons, price, customCrop ->
-          viewModel.publishParcelToMarket(operatorName, tons, price, customCrop)
+        onConfirmPublish = { operatorName, tons, price, customCrop, photoBase64 ->
+          viewModel.publishParcelToMarket(operatorName, tons, price, customCrop, photoBase64)
         },
       )
     }
@@ -993,30 +993,65 @@ private fun WorkspaceBodyContent(
       }
 
       WorkspaceSection.SERVICES -> {
-        AgriServicesScreen(
-          bookingsState = serviceBookingsState,
-          defaultWilaya = editorState.defaultWilaya,
-          activeParcelRef = editorState.activeParcel.ilotNumber,
-          onSubmitBooking = viewModel::submitServiceBooking,
-          onCancelBooking = viewModel::cancelServiceBooking,
-          onBackToDelineation = {
-            val backTarget =
-              if (editorState.activeRole == UserRole.FARMER) WorkspaceSection.PARCEL_DELINEATION
-              else WorkspaceSection.ROLE_DASHBOARD
-            viewModel.navigateToSection(backTarget)
-          },
-          marketListingsState = marketListingsState,
-          agriWeatherReport = editorState.agriWeatherReport,
-          isLoadingAgriWeather = editorState.isLoadingAgriWeather,
-          agriWeatherError = editorState.agriWeatherError,
-          onRefreshAgriWeather = viewModel::refreshAgriWeather,
-          onNavigateToTransportSection = {
-            viewModel.navigateToSection(WorkspaceSection.TRANSPORT)
-          },
-          onNavigateToMarketSection = {
-            viewModel.navigateToSection(WorkspaceSection.PUBLIC_MARKET)
-          },
-        )
+        if (editorState.activeRole == UserRole.FARMER) {
+          val serviceDraft by viewModel.serviceDraftState.collectAsStateWithLifecycle()
+          val isSubmittingQuote by viewModel.isSubmittingServiceQuote.collectAsStateWithLifecycle()
+          val reviewerName = currentUser.displayName ?: editorState.operatorDisplayName
+
+          FarmerServiceRequestFlowScreen(
+            language = editorState.language,
+            draft = serviceDraft,
+            parcels = (userParcelsState as? UiState.Success)?.data ?: emptyList(),
+            partnerCatalog = (activePartnerCatalogState as? UiState.Success)?.data ?: emptyList(),
+            myOrders = (userOrdersState as? UiState.Success)?.data ?: emptyList(),
+            publishedRatings = publishedRatings,
+            currentUserId = currentUser.uid,
+            isSubmitting = isSubmittingQuote,
+            onSelectTile = viewModel::selectFarmerServiceTile,
+            onSelectServiceChoice = viewModel::selectFarmerSpecificService,
+            onCallMyEngineer = viewModel::startCallMyEngineerRequest,
+            onSelectDate = viewModel::selectFarmerServiceDate,
+            onStepBack = viewModel::stepBackFarmerServiceWizard,
+            onOpenStatusScreen = viewModel::openFarmerServiceStatusScreen,
+            onStartNewRequest = viewModel::startNewFarmerServiceRequest,
+            onSendRequest = viewModel::submitFarmerServiceQuoteRequest,
+            onOpenMyLand = { viewModel.navigateToSection(WorkspaceSection.PARCEL_DELINEATION) },
+            onBackToHome = { viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD) },
+            onSubmitProviderRating = { providerId, serviceTitle, stars, orderId ->
+              viewModel.submitUserRating(
+                reviewerName = reviewerName,
+                targetUserId = providerId,
+                targetName = serviceTitle,
+                targetRole = UserRole.SERVICE_PROVIDER.code,
+                stars = stars,
+                comment = "",
+                contextItemId = orderId,
+              )
+            },
+          )
+        } else {
+          AgriServicesScreen(
+            bookingsState = serviceBookingsState,
+            defaultWilaya = editorState.defaultWilaya,
+            activeParcelRef = editorState.activeParcel.ilotNumber,
+            onSubmitBooking = viewModel::submitServiceBooking,
+            onCancelBooking = viewModel::cancelServiceBooking,
+            onBackToDelineation = {
+              viewModel.navigateToSection(WorkspaceSection.ROLE_DASHBOARD)
+            },
+            marketListingsState = marketListingsState,
+            agriWeatherReport = editorState.agriWeatherReport,
+            isLoadingAgriWeather = editorState.isLoadingAgriWeather,
+            agriWeatherError = editorState.agriWeatherError,
+            onRefreshAgriWeather = viewModel::refreshAgriWeather,
+            onNavigateToTransportSection = {
+              viewModel.navigateToSection(WorkspaceSection.TRANSPORT)
+            },
+            onNavigateToMarketSection = {
+              viewModel.navigateToSection(WorkspaceSection.PUBLIC_MARKET)
+            },
+          )
+        }
       }
 
       WorkspaceSection.SETTINGS -> {

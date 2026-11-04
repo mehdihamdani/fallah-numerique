@@ -44,7 +44,7 @@ class PhoneRegistrationAndGalaxy10Test {
     var lastRequestedPhone: String? = null
 
     override suspend fun sendVerificationCode(
-      context: Context,
+      context: Context?,
       e164PhoneNumber: String,
       resendToken: Any?,
     ): PhoneOtpSendOutcome {
@@ -299,5 +299,86 @@ class PhoneRegistrationAndGalaxy10Test {
     assertTrue(completedPhoneVerified)
     assertEquals(listOf("farmer"), completedRoles)
     assertEquals("07 - بسكرة", completedProfiles.firstOrNull()?.wilaya)
+  }
+
+  @Test
+  fun `recaptcha preflight detects missing tenant siteKey and offers one tap google fallback preserving phone`() {
+    // 1. Missing recaptchaKey in Identity Platform response -> NOT_CONFIGURED (prevents E/zza error)
+    assertEquals(
+      com.example.ui.auth.FirebasePhoneAuthGateway.PhoneRecaptchaReadiness.NOT_CONFIGURED,
+      com.example.ui.auth.FirebasePhoneAuthGateway.parseRecaptchaConfigReadiness(
+        200,
+        """{"recaptchaEnforcementState":[]}""",
+      ),
+    )
+    assertEquals(
+      com.example.ui.auth.FirebasePhoneAuthGateway.PhoneRecaptchaReadiness.NOT_CONFIGURED,
+      com.example.ui.auth.FirebasePhoneAuthGateway.parseRecaptchaConfigReadiness(400, "{}"),
+    )
+
+    // 2. Valid configured recaptchaKey -> READY
+    assertEquals(
+      com.example.ui.auth.FirebasePhoneAuthGateway.PhoneRecaptchaReadiness.READY,
+      com.example.ui.auth.FirebasePhoneAuthGateway.parseRecaptchaConfigReadiness(
+        200,
+        """{"recaptchaKey":"projects/gen-lang-client/keys/6Lf9vg","recaptchaEnforcementState":[{"provider":"PHONE_PROVIDER","enforcementState":"ENFORCE"}]}""",
+      ),
+    )
+
+    // 3. Unconfigured SMS / reCAPTCHA produces seamless Google handoff without Firebase Console jargon
+    val handoff =
+      com.example.ui.auth.FirebasePhoneAuthGateway.resolveUnconfiguredOrPhoneSendOutcome(
+        RuntimeException(
+          "Failed to initialize reCAPTCHA config: No Recaptcha Enterprise siteKey configured for tenant/project *"
+        ),
+        "+213550123456",
+      )
+    assertTrue(handoff is PhoneOtpSendOutcome.RequireGoogleIdentityHandoff)
+
+    val mapped =
+      com.example.ui.auth.FirebasePhoneAuthGateway.mapPhoneExceptionToSendError(
+        RuntimeException(
+          "Failed to initialize reCAPTCHA config: No Recaptcha Enterprise siteKey configured for tenant/project *"
+        )
+      )
+    assertTrue(mapped.suggestGoogleFallback)
+    assertTrue(mapped.messageAr.contains("Google"))
+    assertFalse(mapped.messageAr.contains("Firebase Console"))
+
+    // 4. UI renders 1-tap Google fallback button inside banner and preserves normalized draft phone
+    val vm = LoginViewModel(phoneAuthGateway = FakePhoneAuthGateway())
+    vm.onPhoneInputChanged("0550 12 34 56")
+    assertEquals("+213550123456", vm.currentNormalizedDraftPhone())
+
+    var googleFallbackClicks = 0
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        LoginScreenContent(
+          uiState =
+            LoginUiState(
+              language = AppLanguage.AR,
+              phoneInput = "0550123456",
+              normalizedPhone = "+213550123456",
+              status =
+                LoginAuthStatus.Error(
+                  message = mapped.messageAr,
+                  suggestGoogleFallback = true,
+                ),
+            ),
+          onLanguageSelected = {},
+          onSignInClick = { googleFallbackClicks++ },
+          onDismissMessage = {},
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule
+      .onNodeWithTag("error_banner_google_fallback_button")
+      .performScrollTo()
+      .assertIsDisplayed()
+      .performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(1, googleFallbackClicks)
   }
 }

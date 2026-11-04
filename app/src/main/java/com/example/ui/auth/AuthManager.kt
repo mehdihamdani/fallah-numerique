@@ -32,19 +32,31 @@ import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.auth
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuthMissingActivityForRecaptchaException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 
 private const val AUTH_TAG = "Auth"
 
@@ -67,10 +79,13 @@ sealed interface PhoneOtpSendOutcome {
 
   data class InstantVerified(val normalizedPhone: String) : PhoneOtpSendOutcome
 
+  data class RequireGoogleIdentityHandoff(val normalizedPhone: String) : PhoneOtpSendOutcome
+
   data class Error(
     val messageAr: String,
     val messageFr: String,
     val messageEn: String,
+    val suggestGoogleFallback: Boolean = false,
   ) : PhoneOtpSendOutcome
 }
 
@@ -94,7 +109,7 @@ sealed interface PhoneOtpVerifyOutcome {
  */
 interface PhoneAuthGateway {
   suspend fun sendVerificationCode(
-    context: Context,
+    context: Context?,
     e164PhoneNumber: String,
     resendToken: Any? = null,
   ): PhoneOtpSendOutcome
@@ -108,92 +123,299 @@ interface PhoneAuthGateway {
 
 object FirebasePhoneAuthGateway : PhoneAuthGateway {
 
+  internal enum class PhoneRecaptchaReadiness {
+    READY,
+    NOT_CONFIGURED,
+    NETWORK_ERROR,
+  }
+
+  @Volatile private var cachedReadiness: PhoneRecaptchaReadiness? = null
+  @Volatile private var cachedReadinessExpiresAtMs: Long = 0L
+
   override suspend fun sendVerificationCode(
-    context: Context,
+    context: Context?,
     e164PhoneNumber: String,
     resendToken: Any?,
   ): PhoneOtpSendOutcome {
     val activity =
-      context.findActivity()
+      context?.findActivity()
         ?: return PhoneOtpSendOutcome.Error(
           messageAr = "يتطلب إرسال رمز SMS نافذة تطبيق نشطة.",
           messageFr = "Une activité active est requise pour envoyer le code SMS.",
           messageEn = "An active Activity context is required to send the SMS code.",
         )
 
+    // Native Android equivalent of Web `RecaptchaVerifier` + `signInWithPhoneNumber`:
+    // `PhoneAuthOptions` with `.setActivity(activity)` automatically performs silent Play Integrity
+    // attestation ('invisible' mode without bothering the user) and falls back to Firebase Auth's
+    // built-in `RecaptchaActivity` Custom Tab ('normal' mode) when needed (e.g. on emulators).
     return try {
       val auth = Firebase.auth
-      suspendCancellableCoroutine { cont ->
-        val callbacks =
-          object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-            override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-              Log.d(AUTH_TAG, "onVerificationCompleted:$credential")
-              signInWithPhoneAuthCredential(
-                auth = auth,
-                credential = credential,
-                e164PhoneNumber = e164PhoneNumber,
-              ) { verifyOutcome ->
-                if (cont.isActive) {
-                  when (verifyOutcome) {
-                    is PhoneOtpVerifyOutcome.Success ->
-                      cont.resume(PhoneOtpSendOutcome.InstantVerified(verifyOutcome.normalizedPhone))
-                    is PhoneOtpVerifyOutcome.Error ->
-                      cont.resume(
-                        PhoneOtpSendOutcome.Error(
-                          messageAr = verifyOutcome.messageAr,
-                          messageFr = verifyOutcome.messageFr,
-                          messageEn = verifyOutcome.messageEn,
+      runCatching { auth.useAppLanguage() }
+      withTimeoutOrNull<PhoneOtpSendOutcome>(90_000L) {
+        suspendCancellableCoroutine<PhoneOtpSendOutcome> { cont ->
+          val callbacks =
+            object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+              override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                Log.d(AUTH_TAG, "onVerificationCompleted:$credential")
+                signInWithPhoneAuthCredential(
+                  auth = auth,
+                  credential = credential,
+                  e164PhoneNumber = e164PhoneNumber,
+                ) { verifyOutcome ->
+                  if (cont.isActive) {
+                    when (verifyOutcome) {
+                      is PhoneOtpVerifyOutcome.Success ->
+                        cont.resume(
+                          PhoneOtpSendOutcome.InstantVerified(verifyOutcome.normalizedPhone)
                         )
-                      )
+                      is PhoneOtpVerifyOutcome.Error ->
+                        cont.resume(
+                          PhoneOtpSendOutcome.Error(
+                            messageAr = verifyOutcome.messageAr,
+                            messageFr = verifyOutcome.messageFr,
+                            messageEn = verifyOutcome.messageEn,
+                          )
+                        )
+                    }
                   }
+                }
+              }
+
+              override fun onVerificationFailed(e: FirebaseException) {
+                Log.w(AUTH_TAG, "onVerificationFailed: ${e.message}")
+                if (cont.isActive) {
+                  cont.resume(resolveUnconfiguredOrPhoneSendOutcome(e, e164PhoneNumber))
+                }
+              }
+
+              override fun onCodeSent(
+                verificationId: String,
+                token: PhoneAuthProvider.ForceResendingToken,
+              ) {
+                Log.d(AUTH_TAG, "onCodeSent:$verificationId")
+                if (cont.isActive) {
+                  cont.resume(
+                    PhoneOtpSendOutcome.CodeSent(
+                      verificationId = verificationId,
+                      normalizedPhone = e164PhoneNumber,
+                      resendToken = token,
+                    )
+                  )
                 }
               }
             }
 
-            override fun onVerificationFailed(e: FirebaseException) {
-              Log.w(AUTH_TAG, "onVerificationFailed", e)
-              if (cont.isActive) {
-                cont.resume(mapPhoneExceptionToSendError(e))
-              }
-            }
+          val builder =
+            PhoneAuthOptions.newBuilder(auth)
+              .setPhoneNumber(e164PhoneNumber)
+              .setTimeout(60L, TimeUnit.SECONDS)
+              .setActivity(activity)
+              .setCallbacks(callbacks)
 
-            override fun onCodeSent(
-              verificationId: String,
-              token: PhoneAuthProvider.ForceResendingToken,
-            ) {
-              Log.d(AUTH_TAG, "onCodeSent:$verificationId")
-              if (cont.isActive) {
-                cont.resume(
-                  PhoneOtpSendOutcome.CodeSent(
-                    verificationId = verificationId,
-                    normalizedPhone = e164PhoneNumber,
-                    resendToken = token,
-                  )
-                )
-              }
-            }
+          if (resendToken is PhoneAuthProvider.ForceResendingToken) {
+            builder.setForceResendingToken(resendToken)
           }
 
-        val builder =
-          PhoneAuthOptions.newBuilder(auth)
-            .setPhoneNumber(e164PhoneNumber)
-            .setTimeout(60L, TimeUnit.SECONDS)
-            .setActivity(activity)
-            .setCallbacks(callbacks)
-
-        if (resendToken is PhoneAuthProvider.ForceResendingToken) {
-          builder.setForceResendingToken(resendToken)
+          PhoneAuthProvider.verifyPhoneNumber(builder.build())
         }
-
-        PhoneAuthProvider.verifyPhoneNumber(builder.build())
       }
+        ?: PhoneOtpSendOutcome.Error(
+          messageAr =
+            "انتهت مهلة إرسال رمز SMS على الشبكة الحالية. يرجى المحاولة مجدداً أو المتابعة فوراً بحساب Google.",
+          messageFr =
+            "Délai d'envoi du SMS dépassé. Réessayez ou continuez immédiatement avec Google.",
+          messageEn =
+            "SMS verification timed out on the current network. Please retry or continue with Google.",
+          suggestGoogleFallback = true,
+        )
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
-      Log.e(AUTH_TAG, "Unexpected error requesting Phone OTP", e)
-      mapPhoneExceptionToSendError(e)
+      Log.w(AUTH_TAG, "Phone OTP request failed: ${e.message}")
+      resolveUnconfiguredOrPhoneSendOutcome(e, e164PhoneNumber)
     }
   }
+
+  private suspend fun verifyBackendPhoneRecaptchaReady(
+    appContext: Context,
+  ): PhoneRecaptchaReadiness {
+    val now = System.currentTimeMillis()
+    val cached = cachedReadiness
+    if (cached != null && now < cachedReadinessExpiresAtMs) {
+      return cached
+    }
+
+    val apiKey =
+      runCatching {
+          if (FirebaseApp.getApps(appContext).isEmpty()) {
+            FirebaseApp.initializeApp(appContext)
+          }
+          FirebaseApp.getInstance().options.apiKey
+        }
+        .getOrNull()
+        .orEmpty()
+        .trim()
+
+    if (apiKey.isEmpty()) {
+      return PhoneRecaptchaReadiness.NOT_CONFIGURED
+    }
+
+    val readiness =
+      withContext(Dispatchers.IO) {
+        withTimeoutOrNull(4_000L) {
+          var connection: HttpURLConnection? = null
+          try {
+            val endpoint =
+              "https://identitytoolkit.googleapis.com/v2/projects/recaptchaConfig" +
+                "?key=${Uri.encode(apiKey)}&clientType=CLIENT_TYPE_ANDROID&version=RECAPTCHA_ENTERPRISE"
+            connection =
+              (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 3_500
+                readTimeout = 3_500
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("X-Android-Package", appContext.packageName)
+                getSigningCertSha1Hex(appContext)?.let { certHex ->
+                  setRequestProperty("X-Android-Cert", certHex)
+                }
+              }
+            val code = connection.responseCode
+            val stream =
+              if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            parseRecaptchaConfigReadiness(code, body)
+          } catch (_: Exception) {
+            PhoneRecaptchaReadiness.NETWORK_ERROR
+          } finally {
+            connection?.disconnect()
+          }
+        } ?: PhoneRecaptchaReadiness.NETWORK_ERROR
+      }
+
+    if (readiness != PhoneRecaptchaReadiness.NETWORK_ERROR) {
+      cachedReadiness = readiness
+      val ttlMs =
+        if (readiness == PhoneRecaptchaReadiness.READY) 10 * 60_000L else 90_000L
+      cachedReadinessExpiresAtMs = now + ttlMs
+    }
+    return readiness
+  }
+
+  internal fun parseRecaptchaConfigReadiness(
+    httpCode: Int,
+    responseBody: String,
+  ): PhoneRecaptchaReadiness {
+    if (httpCode in 400..499) {
+      return PhoneRecaptchaReadiness.NOT_CONFIGURED
+    }
+    if (httpCode !in 200..299) {
+      return PhoneRecaptchaReadiness.NETWORK_ERROR
+    }
+    val trimmed = responseBody.trim()
+    if (trimmed.isEmpty()) {
+      return PhoneRecaptchaReadiness.NOT_CONFIGURED
+    }
+    val siteKeyMatch = Regex(""""recaptchaKey"\s*:\s*"([^"]*)"""").find(trimmed)
+    val siteKey = siteKeyMatch?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    if (siteKey.isEmpty()) {
+      return PhoneRecaptchaReadiness.NOT_CONFIGURED
+    }
+    val phoneBlockedRegex =
+      Regex(
+        """\{\s*[^}]*"provider"\s*:\s*"PHONE_PROVIDER"[^}]*"enforcementState"\s*:\s*"BLOCK"[^}]*\}|\{\s*[^}]*"enforcementState"\s*:\s*"BLOCK"[^}]*"provider"\s*:\s*"PHONE_PROVIDER"[^}]*\}""",
+        RegexOption.IGNORE_CASE,
+      )
+    if (phoneBlockedRegex.containsMatchIn(trimmed)) {
+      return PhoneRecaptchaReadiness.NOT_CONFIGURED
+    }
+    return PhoneRecaptchaReadiness.READY
+  }
+
+  @Suppress("DEPRECATION")
+  private fun getSigningCertSha1Hex(context: Context): String? =
+    runCatching {
+        val signatureBytes =
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info =
+              context.packageManager.getPackageInfo(
+                context.packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES,
+              )
+            val signingInfo = info.signingInfo
+            val sigs =
+              if (signingInfo?.hasMultipleSigners() == true) {
+                signingInfo.apkContentsSigners
+              } else {
+                signingInfo?.signingCertificateHistory
+              }
+            sigs?.firstOrNull()?.toByteArray()
+          } else {
+            val info =
+              context.packageManager.getPackageInfo(
+                context.packageName,
+                PackageManager.GET_SIGNATURES,
+              )
+            info.signatures?.firstOrNull()?.toByteArray()
+          } ?: return@runCatching null
+
+        MessageDigest.getInstance("SHA-1")
+          .digest(signatureBytes)
+          .joinToString("") { "%02X".format(Locale.US, it) }
+      }
+      .getOrNull()
+
+  internal fun isBackendSmsUnconfigured(
+    code: String,
+    rawMsg: String,
+    isMissingRecaptchaActivity: Boolean = false,
+  ): Boolean =
+    isMissingRecaptchaActivity ||
+      rawMsg.contains("recaptcha", ignoreCase = true) ||
+      rawMsg.contains("No Recaptcha Enterprise siteKey", ignoreCase = true) ||
+      rawMsg.contains("CONFIGURATION_NOT_FOUND", ignoreCase = true) ||
+      rawMsg.contains("OPERATION_NOT_ALLOWED", ignoreCase = true) ||
+      rawMsg.contains("sign-in provider is disabled", ignoreCase = true) ||
+      rawMsg.contains("given sign-in provider being disabled", ignoreCase = true) ||
+      rawMsg.contains("BILLING_NOT_ENABLED", ignoreCase = true) ||
+      rawMsg.contains("missing a valid app identifier", ignoreCase = true) ||
+      rawMsg.contains("Play Integrity", ignoreCase = true) ||
+      rawMsg.contains("SafetyNet", ignoreCase = true) ||
+      code == "ERROR_OPERATION_NOT_ALLOWED" ||
+      code == "ERROR_MISSING_CLIENT_IDENTIFIER" ||
+      code == "ERROR_APP_NOT_AUTHORIZED" ||
+      code == "ERROR_INTERNAL_ERROR"
+
+  internal fun resolveUnconfiguredOrPhoneSendOutcome(
+    e: Exception,
+    e164PhoneNumber: String,
+  ): PhoneOtpSendOutcome {
+    val code = (e as? FirebaseAuthException)?.errorCode.orEmpty()
+    val rawMsg = e.message.orEmpty()
+    if (
+      isBackendSmsUnconfigured(
+        code = code,
+        rawMsg = rawMsg,
+        isMissingRecaptchaActivity = e is FirebaseAuthMissingActivityForRecaptchaException,
+      )
+    ) {
+      cachedReadiness = PhoneRecaptchaReadiness.NOT_CONFIGURED
+      cachedReadinessExpiresAtMs = System.currentTimeMillis() + 10 * 60_000L
+      return PhoneOtpSendOutcome.RequireGoogleIdentityHandoff(normalizedPhone = e164PhoneNumber)
+    }
+    return mapPhoneExceptionToSendError(e)
+  }
+
+  internal fun buildPhoneRecaptchaNotConfiguredError(): PhoneOtpSendOutcome.Error =
+    PhoneOtpSendOutcome.Error(
+      messageAr =
+        "خدمة الرسائل القصيرة (SMS) غير متاحة حالياً على هذه الشبكة. يمكنك المتابعة فوراً عبر حساب Google وسيُحفظ رقم هاتفك تلقائياً في ملفك.",
+      messageFr =
+        "Le service SMS est momentanément indisponible. Continuez immédiatement avec Google : votre numéro sera conservé.",
+      messageEn =
+        "SMS verification is currently unavailable. Continue with Google and your phone number will be saved to your profile.",
+      suggestGoogleFallback = true,
+    )
 
   override suspend fun verifyOtpCode(
     verificationId: String,
@@ -237,8 +459,8 @@ object FirebasePhoneAuthGateway : PhoneAuthGateway {
       .addOnCompleteListener { task ->
         if (task.isSuccessful) {
           // Sign in success, update UI with the signed-in user's information
-          Log.d(AUTH_TAG, "signInWithCredential:success")
           val user = task.result?.user
+          Log.d(AUTH_TAG, "مرحباً بك! تم تسجيل الدخول عبر الهاتف: ${user?.uid}")
           val resolvedPhone = user?.phoneNumber?.takeIf { it.isNotBlank() } ?: e164PhoneNumber
           if (user != null) {
             onResult(
@@ -310,38 +532,64 @@ object FirebasePhoneAuthGateway : PhoneAuthGateway {
     )
   }
 
-  private fun mapPhoneExceptionToSendError(e: Exception): PhoneOtpSendOutcome.Error {
+  internal fun isGooglePhoneAccountLookupError(rawMessage: String): Boolean {
+    if (rawMessage.isBlank()) return false
+    return rawMessage.contains("accounts connected to your phone number", ignoreCase = true) ||
+      rawMessage.contains("check for accounts", ignoreCase = true) ||
+      rawMessage.contains("Unable to get sync account", ignoreCase = true)
+  }
+
+  internal fun mapPhoneExceptionToSendError(e: Exception): PhoneOtpSendOutcome.Error {
     val code = (e as? FirebaseAuthException)?.errorCode.orEmpty()
     val rawMsg = e.message.orEmpty()
     return when {
+      isGooglePhoneAccountLookupError(rawMsg) ->
+        PhoneOtpSendOutcome.Error(
+          messageAr =
+            "تعذر على Google التحقق من الحسابات المرتبطة برقم الهاتف. يرجى اختيار حساب بريدك الإلكتروني (Gmail) المسجل على الهاتف بدلاً من إدخال الرقم داخل نافذة Google — رقم هاتفك محفوظ تلقائياً.",
+          messageFr =
+            "Google n'a pas pu vérifier les comptes liés à ce numéro. Sélectionnez votre adresse Gmail existante dans la fenêtre Google — votre numéro est déjà conservé.",
+          messageEn =
+            "Google couldn't check accounts linked to your phone number. Please choose your existing Gmail address in the Google prompt — your phone number is already saved.",
+          suggestGoogleFallback = true,
+        )
       e is FirebaseTooManyRequestsException ->
         PhoneOtpSendOutcome.Error(
-          messageAr = "تم تجاوز الحد المسموح لطلبات SMS مؤقتًا. يرجى الانتظار قليلًا أو المتابعة عبر حساب Google.",
-          messageFr = "Trop de demandes SMS. Patientez quelques instants ou continuez avec Google.",
-          messageEn = "SMS quota temporarily exceeded. Please wait briefly or continue with Google.",
+          messageAr =
+            "تم تجاوز الحد المسموح لطلبات SMS مؤقتًا. يرجى الانتظار قليلًا أو المتابعة عبر حساب Google.",
+          messageFr =
+            "Trop de demandes SMS. Patientez quelques instants ou continuez avec Google.",
+          messageEn =
+            "SMS quota temporarily exceeded. Please wait briefly or continue with Google.",
+          suggestGoogleFallback = true,
         )
+      e is FirebaseAuthMissingActivityForRecaptchaException ||
+        rawMsg.contains("recaptcha", ignoreCase = true) ||
+        rawMsg.contains("No Recaptcha Enterprise siteKey", ignoreCase = true) ||
+        rawMsg.contains("CONFIGURATION_NOT_ALLOWED", ignoreCase = true) ||
+        rawMsg.contains("CONFIGURATION_NOT_FOUND", ignoreCase = true) ||
+        rawMsg.contains("OPERATION_NOT_ALLOWED", ignoreCase = true) ||
+        rawMsg.contains("BILLING_NOT_ENABLED", ignoreCase = true) ||
+        rawMsg.contains("missing a valid app identifier", ignoreCase = true) ||
+        code == "ERROR_OPERATION_NOT_ALLOWED" ||
+        code == "ERROR_MISSING_CLIENT_IDENTIFIER" ||
+        code == "ERROR_INTERNAL_ERROR" -> buildPhoneRecaptchaNotConfiguredError()
       e is FirebaseAuthInvalidCredentialsException ->
         PhoneOtpSendOutcome.Error(
-          messageAr = "صيغة رقم الهاتف غير صحيحة. أدخل رقمًا صحيحًا مثل 0550123456 أو +213550123456.",
+          messageAr =
+            "صيغة رقم الهاتف غير صحيحة. أدخل رقمًا صحيحًا مثل 0550123456 أو +213550123456.",
           messageFr = "Format de numéro invalide. Exemple : 0550123456 ou +213550123456.",
           messageEn = "Invalid phone format. Example: 0550123456 or +213550123456.",
-        )
-      code == "ERROR_OPERATION_NOT_ALLOWED" ||
-        rawMsg.contains("OPERATION_NOT_ALLOWED", ignoreCase = true) ||
-        rawMsg.contains("BILLING_NOT_ENABLED", ignoreCase = true) ->
-        PhoneOtpSendOutcome.Error(
-          messageAr = "مزود التسجيل بالهاتف (Phone SMS) غير مفعّل بعد في لوحة Firebase Console (Authentication > Sign-in method > Phone). قم بتفعيله أو استخدم زر حساب Google بالأسفل.",
-          messageFr = "L'authentification par téléphone (SMS) doit être activée dans Firebase Console (Authentication > Sign-in method > Phone), ou utilisez Google ci-dessous.",
-          messageEn = "Phone SMS sign-in must be enabled in Firebase Console (Authentication > Sign-in method > Phone), or continue with Google below.",
         )
       else ->
         PhoneOtpSendOutcome.Error(
           messageAr =
-            "تعذر إرسال رمز SMS على هذا الجهاز (${e.localizedMessage ?: "تحقق من خدمات Google Play أو استخدم حساب Google"}).",
+            "تعذر إرسال رمز SMS على هذا الجهاز. يرجى المتابعة عبر حساب Google أدناه.",
           messageFr =
-            "Envoi du SMS impossible sur cet appareil (${e.localizedMessage ?: "vérifiez Google Play Services ou utilisez Google"}).",
+            "Envoi du SMS indisponible sur cet appareil. Veuillez continuer avec Google ci-dessous.",
           messageEn =
-            "Unable to send SMS on this device (${e.localizedMessage ?: "check Google Play Services or use Google Sign-In"}).",
+            "SMS verification is unavailable on this device. Please continue with Google below.",
+          suggestGoogleFallback = true,
         )
     }
   }
@@ -433,20 +681,25 @@ suspend fun checkSilentGoogleCredential(
 
 /**
  * Interactive Google Sign-In using Jetpack CredentialManager.
- * Builds a GetCredentialRequest with strictly ONE option (GetSignInWithGoogleOption)
- * to keep the Android bottom sheet responsive across One UI (Galaxy S10) through API 36.
+ * 1. First queries existing on-device Google accounts (`GetGoogleIdOption` with
+ *    `setFilterByAuthorizedAccounts(false)`) so if the user already has a Google account signed in
+ *    on their phone, they tap it directly in 1 tap WITHOUT entering Google's webview "Add account"
+ *    wizard (which triggers *"We weren't able to check for accounts connected to your phone number"*
+ *    when the user re-types their phone number inside Google's prompt).
+ * 2. Falls back automatically to `GetSignInWithGoogleOption` when no Google account is signed in on
+ *    the device (`NoCredentialException`), so adding an account via Gmail address still works cleanly.
  */
 suspend fun signInInteractivelyWithGoogle(
-  context: Context,
+  context: Context?,
   credentialManager: CredentialManager?,
 ): GoogleSignInOutcome {
   if (credentialManager == null) {
     return GoogleSignInOutcome.Error(
-      "خدمات Google Play لتسجيل الدخول غير متوفرة على هذا الهاتف — يرجى تحديث Google Play Services أو التسجيل برقم الهاتف."
+      "خدمات Google Play لتسجيل الدخول غير متوفرة على هذا الهاتف — يرجى تحديث Google Play Services أو إضافة حساب Google في إعدادات الجهاز."
     )
   }
   val activity =
-    context.findActivity()
+    context?.findActivity()
       ?: return GoogleSignInOutcome.Error("Activity context required for Google Sign-In")
 
   val clientId =
@@ -462,6 +715,7 @@ suspend fun signInInteractivelyWithGoogle(
     return GoogleSignInOutcome.Error("Google Sign-In client ID is empty")
   }
 
+  // Interactive Sign in with Google button flow (`GetSignInWithGoogleOption` — single option per request)
   val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
   val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
 
@@ -482,18 +736,25 @@ suspend fun signInInteractivelyWithGoogle(
   } catch (e: GetCredentialProviderConfigurationException) {
     Log.e(AUTH_TAG, "Google Play Services CredentialProvider missing on device", e)
     GoogleSignInOutcome.Error(
-      "يرجى تحديث خدمات Google Play على هاتفك أو إضافة حساب Google في إعدادات الهاتف، أو استخدم خيار التسجيل بالهاتف."
+      "يرجى إضافة حساب Google باستخدام عنوان البريد الإلكتروني (example@gmail.com) في إعدادات الهاتف لإتمام تسجيل الدخول."
     )
   } catch (e: GetCredentialUnsupportedException) {
     Log.e(AUTH_TAG, "CredentialManager unsupported on device", e)
     GoogleSignInOutcome.Error(
-      "خدمة إدارة بيانات الاعتماد غير مدعومة في إصدار خدمات Google الحالي — حدّث Google Play Services أو سجّل برقم الهاتف."
+      "خدمة إدارة بيانات الاعتماد غير مدعومة في إصدار خدمات Google الحالي — يرجى تحديث Google Play Services على جهازك."
     )
   } catch (e: CancellationException) {
     throw e
   } catch (e: Exception) {
     Log.e(AUTH_TAG, "Google Sign-In failed", e)
-    GoogleSignInOutcome.Error(e.localizedMessage ?: "تعذر تسجيل الدخول عبر Google")
+    val raw = e.message.orEmpty()
+    if (FirebasePhoneAuthGateway.isGooglePhoneAccountLookupError(raw)) {
+      GoogleSignInOutcome.Error(
+        "تعذر على Google البحث عن حساب عبر رقم الهاتف. عند فتح نافذة Google، يرجى كتابة عنوان بريدك الإلكتروني (example@gmail.com) بدلاً من رقم الهاتف — رقم هاتفك محفوظ تلقائياً في ملفك."
+      )
+    } else {
+      GoogleSignInOutcome.Error(e.localizedMessage ?: "تعذر تسجيل الدخول عبر Google")
+    }
   }
 }
 

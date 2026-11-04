@@ -153,7 +153,7 @@ class CustomMainCropRobolectricTest {
           parcel = AgriculturalParcel(mainCrop = ""),
           defaultOperatorName = "مزرعة الهضاب",
           onDismiss = {},
-          onConfirmPublish = { _, _, price, crop ->
+          onConfirmPublish = { _, _, price, crop, _ ->
             publishedPrice = price
             publishedCrop = crop
           },

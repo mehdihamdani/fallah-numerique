@@ -58,7 +58,12 @@ import com.example.data.model.UserRole
 import com.example.data.model.WorkspaceSection
 import com.example.ui.components.MyReputationOverviewCard
 import com.example.ui.viewmodel.FellahMatinViewModel
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.util.RoleStrings
+import com.example.util.trStringResource
 import java.util.Locale
 
 private data class RoleQuickAction(
@@ -71,14 +76,204 @@ private data class RoleQuickAction(
 )
 
 /**
+ * Low-literacy Farmer Home Screen showing ONLY three primary actions:
+ * 1. "My land" (`أرضي` / `Ma terre`)
+ * 2. "Sell my crop" (`بيع محصولي` / `Vendre ma récolte`)
+ * 3. "Request a service" (`اطلب خدمة` / `Demander un service`) — replaces any home-level
+ *    "Call my engineer" action, which now lives inside the service screen as a secondary button.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun FarmerThreeActionHomeScreen(
+  assignedRoles: List<UserRole>,
+  language: AppLanguage,
+  operatorDisplayName: String,
+  roleProfile: RoleSpecificProfile?,
+  hasRegisteredParcel: Boolean,
+  onNavigateToSection: (WorkspaceSection) -> Unit,
+  onSwitchRole: (UserRole) -> Unit,
+  onOpenPublishHarvestDialog: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Column(
+    modifier = modifier.fillMaxWidth().testTag("role_dashboard_farmer"),
+    verticalArrangement = Arrangement.spacedBy(18.dp),
+  ) {
+    // Simple high-contrast greeting header (+ multi-role switcher only if account holds >1 role)
+    Card(
+      shape = RoundedCornerShape(20.dp),
+      colors =
+        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+      border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
+      modifier = Modifier.fillMaxWidth(),
+    ) {
+      Column(
+        modifier = Modifier.fillMaxWidth().padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        Text(
+          text = roleProfile?.businessName?.takeIf { it.isNotBlank() } ?: operatorDisplayName,
+          fontSize = 24.sp,
+          fontWeight = FontWeight.ExtraBold,
+          color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+          text = trStringResource(language, R.string.farmer_home_welcome),
+          fontSize = 18.sp,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.primary,
+        )
+
+        if (assignedRoles.size > 1) {
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+          FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            assignedRoles.forEach { r ->
+              val isCurrent = r == UserRole.FARMER
+              Surface(
+                shape = RoundedCornerShape(50),
+                color =
+                  if (isCurrent) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.surfaceContainer,
+                modifier =
+                  Modifier.heightIn(min = 56.dp)
+                    .clickable { if (!isCurrent) onSwitchRole(r) }
+                    .testTag("dashboard_role_pill_${r.code}"),
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Icon(
+                    imageVector = RoleStrings.iconForRole(r),
+                    contentDescription = null,
+                    tint =
+                      if (isCurrent) MaterialTheme.colorScheme.onPrimary
+                      else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                  )
+                  Text(
+                    text = r.localizedTitle(language),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color =
+                      if (isCurrent) MaterialTheme.colorScheme.onPrimary
+                      else MaterialTheme.colorScheme.onSurface,
+                  )
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Action 1: My land
+    FarmerPrimaryHomeActionCard(
+      title = trStringResource(language, R.string.farmer_home_action_my_land),
+      subtitle = trStringResource(language, R.string.farmer_home_action_my_land_sub),
+      icon = Icons.Filled.Map,
+      containerColor = MaterialTheme.colorScheme.primaryContainer,
+      contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+      onClick = { onNavigateToSection(WorkspaceSection.PARCEL_DELINEATION) },
+      testTag = "farmer_home_action_my_land",
+    )
+
+    // Action 2: Sell my crop
+    FarmerPrimaryHomeActionCard(
+      title = trStringResource(language, R.string.farmer_home_action_sell_crop),
+      subtitle = trStringResource(language, R.string.farmer_home_action_sell_crop_sub),
+      icon = Icons.Filled.Storefront,
+      containerColor = MaterialTheme.colorScheme.secondaryContainer,
+      contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+      onClick = {
+        if (hasRegisteredParcel) {
+          onOpenPublishHarvestDialog()
+        } else {
+          onNavigateToSection(WorkspaceSection.PUBLIC_MARKET)
+        }
+      },
+      testTag = "farmer_home_action_sell_crop",
+    )
+
+    // Action 3: Request a service (replaces home-level "Call my engineer")
+    FarmerPrimaryHomeActionCard(
+      title = trStringResource(language, R.string.farmer_home_action_request_service),
+      subtitle = trStringResource(language, R.string.farmer_home_action_request_service_sub),
+      icon = Icons.Filled.Handyman,
+      containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+      contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+      onClick = { onNavigateToSection(WorkspaceSection.SERVICES) },
+      testTag = "farmer_home_action_request_service",
+    )
+  }
+}
+
+@Composable
+private fun FarmerPrimaryHomeActionCard(
+  title: String,
+  subtitle: String,
+  icon: ImageVector,
+  containerColor: androidx.compose.ui.graphics.Color,
+  contentColor: androidx.compose.ui.graphics.Color,
+  onClick: () -> Unit,
+  testTag: String,
+) {
+  Card(
+    shape = RoundedCornerShape(22.dp),
+    colors = CardDefaults.cardColors(containerColor = containerColor),
+    border = BorderStroke(2.dp, contentColor.copy(alpha = 0.25f)),
+    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+    modifier =
+      Modifier.fillMaxWidth()
+        .heightIn(min = 96.dp)
+        .clickable(onClick = onClick)
+        .testTag(testTag),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+      Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = contentColor.copy(alpha = 0.14f),
+        modifier = Modifier.size(60.dp),
+      ) {
+        Box(contentAlignment = Alignment.Center) {
+          Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(34.dp),
+          )
+        }
+      }
+      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+          text = title,
+          fontSize = 22.sp,
+          fontWeight = FontWeight.ExtraBold,
+          color = contentColor,
+        )
+        Text(
+          text = subtitle,
+          fontSize = 18.sp,
+          color = contentColor.copy(alpha = 0.88f),
+        )
+      }
+    }
+  }
+}
+
+/**
  * Personalized Role Dashboard (`RoleDashboardScreen`) adapting KPIs, progressive profile prompts,
  * quick actions, and live operational feeds to the currently active professional role:
- * - `farmer`
- * - `trader`
- * - `transporter`
- * - `supplier`
- * - `service_provider`
- * - `storage_provider`
+ * - `farmer` -> Low-literacy 3-action Farmer Home (`FarmerThreeActionHomeScreen`)
+ * - `trader`, `transporter`, `supplier`, `service_provider`, `storage_provider` -> Role Dashboards
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -106,6 +301,21 @@ fun RoleDashboardScreen(
   myReputation: UserReputationSummary = UserReputationSummary(targetUserId = currentUserId),
   favoritesCount: Int = 0,
 ) {
+  if (activeRole == UserRole.FARMER) {
+    FarmerThreeActionHomeScreen(
+      assignedRoles = assignedRoles,
+      language = language,
+      operatorDisplayName = operatorDisplayName,
+      roleProfile = roleProfile,
+      hasRegisteredParcel = parcels.any { it.id.isNotBlank() },
+      onNavigateToSection = onNavigateToSection,
+      onSwitchRole = onSwitchRole,
+      onOpenPublishHarvestDialog = onOpenPublishHarvestDialog,
+      modifier = modifier,
+    )
+    return
+  }
+
   val unreadMessages = messages.count { it.recipientId == currentUserId && !it.isRead }
   val myActiveCatalog =
     myCatalogItems.filter { it.providerRole == activeRole.code && it.status == "active" }
